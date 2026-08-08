@@ -1,0 +1,38 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# IDE / Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Node / React / Tauri frontend
+node_modules/
+dist/
+.vite/
+*.log
+
+# Rust / Tauri
+target/
+src-tauri/target/
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*~
+
+# OS / tooling
+Thumbs.db
+
+# Local evidence / generated artifacts
+artifacts/
+evidence/
