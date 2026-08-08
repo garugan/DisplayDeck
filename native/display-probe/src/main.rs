@@ -1,10 +1,15 @@
 #![deny(unsafe_op_in_unsafe_fn)]
 
 #[cfg(target_os = "windows")]
+mod ccd;
+#[cfg(target_os = "windows")]
 mod display;
 
 #[cfg(target_os = "windows")]
 fn main() {
+    print_ccd_snapshot();
+    println!();
+
     let adapters = display::enumerate_display_adapters();
 
     if adapters.is_empty() {
@@ -28,6 +33,114 @@ fn main() {
             print_device_info("    ", &monitor.info);
         }
     }
+}
+
+#[cfg(target_os = "windows")]
+fn print_ccd_snapshot() {
+    println!("CCD Active Configuration");
+
+    let snapshot = match ccd::query_active_display_config() {
+        Ok(snapshot) => snapshot,
+        Err(error) => {
+            println!("  Error: {error}");
+            return;
+        }
+    };
+
+    println!("  ActivePaths: {}", snapshot.paths.len());
+
+    for path in snapshot.paths {
+        println!("  Path {}", path.index);
+        println!(
+            "    Source: adapter={} id={} modeInfoIndex={}",
+            format_luid(path.source.adapter_luid),
+            path.source.id,
+            format_mode_index(path.source.mode_info_index)
+        );
+        println!("    SourceStatusFlags: 0x{:08X}", path.source.status_flags);
+
+        if let Some(source_mode) = path.source_mode {
+            println!(
+                "    SourceMode: {}x{} at ({}, {}) pixelFormat={}",
+                source_mode.width_pixels,
+                source_mode.height_pixels,
+                source_mode.position_x,
+                source_mode.position_y,
+                source_mode.pixel_format
+            );
+        } else {
+            println!("    SourceMode: unavailable");
+        }
+
+        println!(
+            "    Target: adapter={} id={} modeInfoIndex={}",
+            format_luid(path.target.adapter_luid),
+            path.target.id,
+            format_mode_index(path.target.mode_info_index)
+        );
+        println!("    TargetAvailable: {}", path.target.available);
+        println!(
+            "    TargetPathRefreshRate: {}",
+            format_rational(path.target.refresh_rate)
+        );
+        println!(
+            "    OutputTechnology: {}  Rotation: {}  Scaling: {}  ScanLineOrdering: {}",
+            path.target.output_technology,
+            path.target.rotation,
+            path.target.scaling,
+            path.target.scan_line_ordering
+        );
+        println!("    TargetStatusFlags: 0x{:08X}", path.target.status_flags);
+        println!("    PathFlags: 0x{:08X}", path.flags);
+
+        if let Some(target_mode) = path.target_mode {
+            println!(
+                "    TargetModeActiveSize: {}x{}",
+                target_mode.active_width_pixels, target_mode.active_height_pixels
+            );
+            println!(
+                "    TargetModeTotalSize: {}x{}",
+                target_mode.total_width_pixels, target_mode.total_height_pixels
+            );
+            println!(
+                "    TargetModeVSync: {}",
+                format_rational(target_mode.vertical_sync)
+            );
+            println!(
+                "    TargetModeHSync: {}",
+                format_rational(target_mode.horizontal_sync)
+            );
+            println!("    TargetModePixelRate: {}", target_mode.pixel_rate);
+            println!(
+                "    TargetModeScanLineOrdering: {}",
+                target_mode.scan_line_ordering
+            );
+        } else {
+            println!("    TargetMode: unavailable");
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn format_luid(luid: ccd::AdapterLuid) -> String {
+    format!("0x{:016X}", luid.as_u64())
+}
+
+#[cfg(target_os = "windows")]
+fn format_mode_index(index: Option<u32>) -> String {
+    index
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| "unavailable".to_owned())
+}
+
+#[cfg(target_os = "windows")]
+fn format_rational(value: ccd::Rational) -> String {
+    if value.denominator == 0 {
+        return format!("{}/{} (undefined)", value.numerator, value.denominator);
+    }
+
+    let decimal = f64::from(value.numerator) / f64::from(value.denominator);
+    format!("{}/{} ({decimal:.6} Hz)", value.numerator, value.denominator)
 }
 
 #[cfg(target_os = "windows")]

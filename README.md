@@ -117,7 +117,7 @@ GDIの`dmDisplayFrequency`は整数値です。59.94Hzなどの厳密な分数re
 
 現在の解像度と整数refresh rateの取得結果はWindows実機で確認済みです。
 
-## Step 3: 利用可能な解像度・refresh rate一覧の確認
+## Step 3: 利用可能な解像度・refresh rate一覧の確認（Windows実機検証完了）
 
 Step 3では、各adapterの`DeviceName`を使って`EnumDisplaySettingsExW`を繰り返し呼び、利用可能なmodeを列挙します。
 
@@ -157,7 +157,58 @@ APIが1件もmodeを返さないadapterは`AvailableModes: 0`と表示します�
 
 ### Step 3の完了条件
 
-利用可能な解像度・整数refresh rate一覧をWindows実機で確認できたら、Step 3は完了です。CCDによるtopologyとrational refreshの取得はStep 4で実装します。
+利用可能な解像度・整数refresh rate一覧はWindows実機で確認済みです。重複recordは調査用に保持し、driverが列挙するネイティブ解像度を超えるmodeも削除していません。
+
+## Step 4: CCD active configurationの確認
+
+Step 4では、CCD APIを使って現在のactive display pathとmode情報を取得します。
+
+- `GetDisplayConfigBufferSizes(QDC_ONLY_ACTIVE_PATHS)`で必要な配列長を取得
+- `QueryDisplayConfig(QDC_ONLY_ACTIVE_PATHS)`でactive pathとmode情報を取得
+- topology変更による`ERROR_INSUFFICIENT_BUFFER`では、size取得から最大3回retry
+- path上限256件、mode上限1024件
+- source/targetのmode index、type、adapter LUID、IDを照合してからunionを読み取る
+- `QDC_VIRTUAL_MODE_AWARE`、`QDC_VIRTUAL_REFRESH_RATE_AWARE`、`QDC_DATABASE_CURRENT`はまだ使用しない
+
+実行コマンドはこれまでと同じです。
+
+```text
+cargo run --manifest-path native/display-probe/Cargo.toml
+```
+
+GDI情報より前に、次のようなCCD情報が表示されます。
+
+```text
+CCD Active Configuration
+  ActivePaths: 3
+  Path 0
+    Source: adapter=0x0000000000000000 id=0 modeInfoIndex=0
+    SourceMode: 3440x1440 at (0, 0) pixelFormat=4
+    Target: adapter=0x0000000000000000 id=1 modeInfoIndex=1
+    TargetAvailable: true
+    TargetPathRefreshRate: 144000/1000 (144.000000 Hz)
+    TargetModeActiveSize: 3440x1440
+    TargetModeVSync: 144000/1000 (144.000000 Hz)
+```
+
+実際のadapter LUID、ID、mode index、rationalの分子・分母は環境によって異なります。decimal値だけでなく、分子と分母を含む標準出力全体を保存してください。
+
+この段階では`DisplayConfigGetDeviceInfo`を呼ばないため、CCD source/targetのfriendly nameやGDI `DeviceName`とのcross-mapはまだ作りません。また、Step 3のmode候補とCCD active pathを適用可能候補として関連付ける処理も未実装です。
+
+### Step 4の確認項目
+
+1. CLIが正常にbuild・実行できる。
+2. `ActivePaths`がWindowsでactiveなdisplay path数と整合する。
+3. 各pathにsource/targetのadapter LUID、ID、mode indexが表示される。
+4. source modeの解像度・位置が現在のdesktop配置と整合する。
+5. target modeのactive sizeとrational VSyncが表示される。
+6. GDIの整数refresh rateとCCDのrational refreshを比較する。
+7. desktop未接続のadapterがactive pathとして誤って表示されない。
+8. 実行前後で解像度、refresh rate、monitor配置などが変化しない。
+
+### Step 4の完了条件
+
+active path、source/target mode、rational refreshをWindows実機で確認できたら、この最小`QueryDisplayConfig` Step 4は完了です。friendly name取得とGDI↔CCD cross-mapは別のread-only拡張として扱います。
 
 ### Windows以外で実行した場合
 
