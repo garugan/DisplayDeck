@@ -6,7 +6,7 @@ use windows::{
         EnumDisplayDevicesW, EnumDisplaySettingsExW, DEVMODEW, DISPLAY_DEVICEW,
         DISPLAY_DEVICE_ATTACHED_TO_DESKTOP, DISPLAY_DEVICE_PRIMARY_DEVICE,
         DM_DISPLAYFREQUENCY, DM_PELSHEIGHT, DM_PELSWIDTH, ENUM_CURRENT_SETTINGS,
-        ENUM_DISPLAY_SETTINGS_FLAGS,
+        ENUM_DISPLAY_SETTINGS_FLAGS, ENUM_DISPLAY_SETTINGS_MODE,
     },
 };
 
@@ -14,7 +14,8 @@ use windows::{
 pub struct DisplayAdapter {
     pub index: u32,
     pub info: DisplayDeviceInfo,
-    pub current_mode: Option<CurrentDisplayMode>,
+    pub current_mode: Option<DisplayMode>,
+    pub available_modes: Vec<EnumeratedDisplayMode>,
     pub monitors: Vec<DisplayMonitor>,
 }
 
@@ -35,10 +36,16 @@ pub struct DisplayDeviceInfo {
 }
 
 #[derive(Debug)]
-pub struct CurrentDisplayMode {
+pub struct DisplayMode {
     pub width_pixels: Option<u32>,
     pub height_pixels: Option<u32>,
     pub refresh_rate: RefreshRate,
+}
+
+#[derive(Debug)]
+pub struct EnumeratedDisplayMode {
+    pub index: u32,
+    pub mode: DisplayMode,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -61,12 +68,14 @@ pub fn enumerate_display_adapters() -> Vec<DisplayAdapter> {
         // it to a Rust String first could alter malformed UTF-16 code units.
         let adapter_device_name = nul_terminated_copy(&raw_adapter.DeviceName);
         let current_mode = current_display_mode(&adapter_device_name);
+        let available_modes = available_display_modes(&adapter_device_name);
         let monitors = enumerate_monitors(&adapter_device_name);
 
         adapters.push(DisplayAdapter {
             index: adapter_index,
             info: DisplayDeviceInfo::from_raw(&raw_adapter),
             current_mode,
+            available_modes,
             monitors,
         });
 
@@ -104,7 +113,7 @@ fn enumerate_monitors(adapter_device_name: &[u16]) -> Vec<DisplayMonitor> {
     monitors
 }
 
-fn current_display_mode(adapter_device_name: &[u16]) -> Option<CurrentDisplayMode> {
+fn current_display_mode(adapter_device_name: &[u16]) -> Option<DisplayMode> {
     assert_eq!(
         adapter_device_name.last(),
         Some(&0),
@@ -112,9 +121,7 @@ fn current_display_mode(adapter_device_name: &[u16]) -> Option<CurrentDisplayMod
     );
     let adapter_device_name = PCWSTR::from_raw(adapter_device_name.as_ptr());
 
-    let mut mode = DEVMODEW::default();
-    mode.dmSize =
-        u16::try_from(size_of::<DEVMODEW>()).expect("DEVMODEW size must fit in a u16");
+    let mut mode = initialized_devmode();
 
     // SAFETY: `adapter_device_name` points to a NUL-terminated UTF-16 slice that
     // remains alive for the call. `mode` is a valid, aligned, writable DEVMODEW,
@@ -132,7 +139,52 @@ fn current_display_mode(adapter_device_name: &[u16]) -> Option<CurrentDisplayMod
 
     succeeded
         .as_bool()
-        .then(|| CurrentDisplayMode::from_raw(&mode))
+        .then(|| DisplayMode::from_raw(&mode))
+}
+
+fn available_display_modes(adapter_device_name: &[u16]) -> Vec<EnumeratedDisplayMode> {
+    assert_eq!(
+        adapter_device_name.last(),
+        Some(&0),
+        "adapter device name must be NUL-terminated"
+    );
+    let adapter_device_name = PCWSTR::from_raw(adapter_device_name.as_ptr());
+    let mut modes = Vec::new();
+    let mut mode_index = 0_u32;
+
+    loop {
+        let mut mode = initialized_devmode();
+
+        // SAFETY: `adapter_device_name` points to a NUL-terminated UTF-16 slice
+        // that remains alive for the call. `mode` is a valid, aligned, writable
+        // DEVMODEW with its exact `dmSize` set for every iteration. The function
+        // retains neither pointer. A nonnegative mode index with flags 0 enumerates
+        // reported modes and does not request or persist a display setting change.
+        let succeeded = unsafe {
+            EnumDisplaySettingsExW(
+                adapter_device_name,
+                ENUM_DISPLAY_SETTINGS_MODE(mode_index),
+                &mut mode,
+                ENUM_DISPLAY_SETTINGS_FLAGS(0),
+            )
+        };
+
+        if !succeeded.as_bool() {
+            break;
+        }
+
+        modes.push(EnumeratedDisplayMode {
+            index: mode_index,
+            mode: DisplayMode::from_raw(&mode),
+        });
+
+        let Some(next_index) = mode_index.checked_add(1) else {
+            break;
+        };
+        mode_index = next_index;
+    }
+
+    modes
 }
 
 fn enum_display_device(
@@ -180,7 +232,7 @@ impl DisplayDeviceInfo {
     }
 }
 
-impl CurrentDisplayMode {
+impl DisplayMode {
     fn from_raw(mode: &DEVMODEW) -> Self {
         let width_pixels = mode
             .dmFields
@@ -206,6 +258,13 @@ impl CurrentDisplayMode {
             refresh_rate,
         }
     }
+}
+
+fn initialized_devmode() -> DEVMODEW {
+    let mut mode = DEVMODEW::default();
+    mode.dmSize =
+        u16::try_from(size_of::<DEVMODEW>()).expect("DEVMODEW size must fit in a u16");
+    mode
 }
 
 fn wide_array_to_string(value: &[u16]) -> String {

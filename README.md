@@ -79,7 +79,7 @@ Adapter 0
 
 上記のbuild、列挙結果、読み取り専用であることはWindows実機で確認済みです。
 
-## Step 2: 現在の解像度・refresh rateの確認
+## Step 2: 現在の解像度・refresh rateの確認（Windows実機検証完了）
 
 Step 2では、各adapterの`DeviceName`を使って`EnumDisplaySettingsExW`を呼び、現在の解像度とrefresh rateを取得します。
 
@@ -115,7 +115,49 @@ GDIの`dmDisplayFrequency`は整数値です。59.94Hzなどの厳密な分数re
 
 ### Step 2の完了条件
 
-現在の解像度と整数refresh rateの取得結果をWindows実機で確認できたら、Step 2は完了です。利用可能なmode一覧はStep 3、CCDによる厳密なtopology・rational refreshの取得はStep 4で実装します。
+現在の解像度と整数refresh rateの取得結果はWindows実機で確認済みです。
+
+## Step 3: 利用可能な解像度・refresh rate一覧の確認
+
+Step 3では、各adapterの`DeviceName`を使って`EnumDisplaySettingsExW`を繰り返し呼び、利用可能なmodeを列挙します。
+
+- mode index: `0`から開始し、APIが失敗を返すまで1ずつ増加
+- flags: `0`（`EDS_RAWMODE`は使用しない）
+- `DEVMODEW.dmSize`: 呼び出しごとに`size_of::<DEVMODEW>()`を設定
+- 有効性: `dmFields`の`DM_PELSWIDTH`、`DM_PELSHEIGHT`、`DM_DISPLAYFREQUENCY`を確認
+- 順序: APIが返したindexと列挙順を保持
+
+実行コマンドはこれまでと同じです。
+
+```text
+cargo run --manifest-path native/display-probe/Cargo.toml
+```
+
+adapter情報にmode件数と一覧が追加されます。
+
+```text
+  AvailableModes: 3
+    Mode 0: 1920x1080 @ 60 Hz
+    Mode 1: 2560x1440 @ 60 Hz
+    Mode 2: 2560x1440 @ 144 Hz
+```
+
+同じ解像度・refresh rateが複数回表示される場合でも、列挙recordを勝手に統合しません。表示していないbit depthやorientationなどが異なる可能性があるためです。
+
+APIが1件もmodeを返さないadapterは`AvailableModes: 0`と表示します。fieldが取得できないrecordや`dmDisplayFrequency`が`0/1`のrecordは、Step 2と同じ規則で`unavailable`または`driver default`と表示します。
+
+### Step 3の確認項目
+
+1. CLIが正常にbuild・実行できる。
+2. desktopに接続された各adapterに`AvailableModes`の件数が表示される。
+3. mode indexが`0`から連続して表示される。
+4. Windows Settingsで選択可能な主要な解像度・refresh rateが一覧に含まれる。
+5. 重複recordや`unavailable`がある場合は、標準出力を省略せず保存する。
+6. 実行前後で解像度、refresh rate、monitor配置などが変化しない。
+
+### Step 3の完了条件
+
+利用可能な解像度・整数refresh rate一覧をWindows実機で確認できたら、Step 3は完了です。CCDによるtopologyとrational refreshの取得はStep 4で実装します。
 
 ### Windows以外で実行した場合
 

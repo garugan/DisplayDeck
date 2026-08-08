@@ -20,6 +20,7 @@ fn main() {
         println!("Adapter {}", adapter.index);
         print_device_info("  ", &adapter.info);
         print_current_mode("  ", adapter.current_mode.as_ref());
+        print_available_modes("  ", &adapter.available_modes);
 
         for monitor in &adapter.monitors {
             println!();
@@ -30,7 +31,7 @@ fn main() {
 }
 
 #[cfg(target_os = "windows")]
-fn print_current_mode(indent: &str, mode: Option<&display::CurrentDisplayMode>) {
+fn print_current_mode(indent: &str, mode: Option<&display::DisplayMode>) {
     let Some(mode) = mode else {
         println!("{indent}CurrentResolution: unavailable");
         println!("{indent}CurrentRefreshRateHz: unavailable");
@@ -54,6 +55,29 @@ fn print_current_mode(indent: &str, mode: Option<&display::CurrentDisplayMode>) 
         display::RefreshRate::NotReported => {
             println!("{indent}CurrentRefreshRateHz: unavailable");
         }
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn print_available_modes(indent: &str, modes: &[display::EnumeratedDisplayMode]) {
+    println!("{indent}AvailableModes: {}", modes.len());
+
+    for enumerated_mode in modes {
+        let mode = &enumerated_mode.mode;
+        let resolution = match (mode.width_pixels, mode.height_pixels) {
+            (Some(width), Some(height)) => format!("{width}x{height}"),
+            _ => "resolution unavailable".to_owned(),
+        };
+        let refresh_rate = match mode.refresh_rate {
+            display::RefreshRate::Hertz(hertz) => format!("{hertz} Hz"),
+            display::RefreshRate::DriverDefault => "driver default".to_owned(),
+            display::RefreshRate::NotReported => "refresh unavailable".to_owned(),
+        };
+
+        println!(
+            "{indent}  Mode {}: {resolution} @ {refresh_rate}",
+            enumerated_mode.index
+        );
     }
 }
 
