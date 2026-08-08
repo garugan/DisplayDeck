@@ -3,8 +3,10 @@ use std::mem::size_of;
 use windows::{
     core::PCWSTR,
     Win32::Graphics::Gdi::{
-        EnumDisplayDevicesW, DISPLAY_DEVICEW, DISPLAY_DEVICE_ATTACHED_TO_DESKTOP,
-        DISPLAY_DEVICE_PRIMARY_DEVICE,
+        EnumDisplayDevicesW, EnumDisplaySettingsExW, DEVMODEW, DISPLAY_DEVICEW,
+        DISPLAY_DEVICE_ATTACHED_TO_DESKTOP, DISPLAY_DEVICE_PRIMARY_DEVICE,
+        DM_DISPLAYFREQUENCY, DM_PELSHEIGHT, DM_PELSWIDTH, ENUM_CURRENT_SETTINGS,
+        ENUM_DISPLAY_SETTINGS_FLAGS,
     },
 };
 
@@ -12,6 +14,7 @@ use windows::{
 pub struct DisplayAdapter {
     pub index: u32,
     pub info: DisplayDeviceInfo,
+    pub current_mode: Option<CurrentDisplayMode>,
     pub monitors: Vec<DisplayMonitor>,
 }
 
@@ -31,6 +34,20 @@ pub struct DisplayDeviceInfo {
     pub is_attached_to_desktop: bool,
 }
 
+#[derive(Debug)]
+pub struct CurrentDisplayMode {
+    pub width_pixels: Option<u32>,
+    pub height_pixels: Option<u32>,
+    pub refresh_rate: RefreshRate,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum RefreshRate {
+    Hertz(u32),
+    DriverDefault,
+    NotReported,
+}
+
 pub fn enumerate_display_adapters() -> Vec<DisplayAdapter> {
     let mut adapters = Vec::new();
     let mut adapter_index = 0_u32;
@@ -43,11 +60,13 @@ pub fn enumerate_display_adapters() -> Vec<DisplayAdapter> {
         // Keep the exact UTF-16 adapter name for the child-monitor calls. Converting
         // it to a Rust String first could alter malformed UTF-16 code units.
         let adapter_device_name = nul_terminated_copy(&raw_adapter.DeviceName);
+        let current_mode = current_display_mode(&adapter_device_name);
         let monitors = enumerate_monitors(&adapter_device_name);
 
         adapters.push(DisplayAdapter {
             index: adapter_index,
             info: DisplayDeviceInfo::from_raw(&raw_adapter),
+            current_mode,
             monitors,
         });
 
@@ -83,6 +102,37 @@ fn enumerate_monitors(adapter_device_name: &[u16]) -> Vec<DisplayMonitor> {
     }
 
     monitors
+}
+
+fn current_display_mode(adapter_device_name: &[u16]) -> Option<CurrentDisplayMode> {
+    assert_eq!(
+        adapter_device_name.last(),
+        Some(&0),
+        "adapter device name must be NUL-terminated"
+    );
+    let adapter_device_name = PCWSTR::from_raw(adapter_device_name.as_ptr());
+
+    let mut mode = DEVMODEW::default();
+    mode.dmSize =
+        u16::try_from(size_of::<DEVMODEW>()).expect("DEVMODEW size must fit in a u16");
+
+    // SAFETY: `adapter_device_name` points to a NUL-terminated UTF-16 slice that
+    // remains alive for the call. `mode` is a valid, aligned, writable DEVMODEW,
+    // with `dmSize` initialized to the exact structure size. The function does not
+    // retain either pointer. ENUM_CURRENT_SETTINGS with flags 0 only reads the
+    // current mode; it does not request or persist a display setting change.
+    let succeeded = unsafe {
+        EnumDisplaySettingsExW(
+            adapter_device_name,
+            ENUM_CURRENT_SETTINGS,
+            &mut mode,
+            ENUM_DISPLAY_SETTINGS_FLAGS(0),
+        )
+    };
+
+    succeeded
+        .as_bool()
+        .then(|| CurrentDisplayMode::from_raw(&mode))
 }
 
 fn enum_display_device(
@@ -126,6 +176,34 @@ impl DisplayDeviceInfo {
             is_attached_to_desktop: device
                 .StateFlags
                 .contains(DISPLAY_DEVICE_ATTACHED_TO_DESKTOP),
+        }
+    }
+}
+
+impl CurrentDisplayMode {
+    fn from_raw(mode: &DEVMODEW) -> Self {
+        let width_pixels = mode
+            .dmFields
+            .contains(DM_PELSWIDTH)
+            .then_some(mode.dmPelsWidth)
+            .filter(|value| *value > 0);
+        let height_pixels = mode
+            .dmFields
+            .contains(DM_PELSHEIGHT)
+            .then_some(mode.dmPelsHeight)
+            .filter(|value| *value > 0);
+        let refresh_rate = if !mode.dmFields.contains(DM_DISPLAYFREQUENCY) {
+            RefreshRate::NotReported
+        } else if mode.dmDisplayFrequency <= 1 {
+            RefreshRate::DriverDefault
+        } else {
+            RefreshRate::Hertz(mode.dmDisplayFrequency)
+        };
+
+        Self {
+            width_pixels,
+            height_pixels,
+            refresh_rate,
         }
     }
 }

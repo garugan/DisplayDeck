@@ -2,7 +2,7 @@
 
 Windows 10 / Windows 11向けのディスプレイ管理アプリケーションです。
 
-## Step 1: `EnumDisplayDevicesW` の確認
+## Step 1: `EnumDisplayDevicesW` の確認（Windows実機検証完了）
 
 Step 1では、読み取り専用のRust CLIを使って、Windowsのディスプレイアダプターと各adapter配下のmonitorを列挙します。ディスプレイ設定の変更は行いません。
 
@@ -52,6 +52,8 @@ Adapter 0
   DeviceKey: ...
   Primary: true
   AttachedToDesktop: true
+  CurrentResolution: 3440x1440
+  CurrentRefreshRateHz: 144
 
   Monitor 0
     DeviceName: ...
@@ -75,7 +77,45 @@ Adapter 0
 
 ### Step 1の完了条件
 
-上記のbuild、列挙結果、読み取り専用であることをWindows実機で確認できたら、Step 1は完了です。Step 2以降の解像度・refresh rate取得やCCD APIは、このCLIにはまだ実装されていません。
+上記のbuild、列挙結果、読み取り専用であることはWindows実機で確認済みです。
+
+## Step 2: 現在の解像度・refresh rateの確認
+
+Step 2では、各adapterの`DeviceName`を使って`EnumDisplaySettingsExW`を呼び、現在の解像度とrefresh rateを取得します。
+
+- mode: `ENUM_CURRENT_SETTINGS`
+- flags: `0`
+- `DEVMODEW.dmSize`: 呼び出しごとに`size_of::<DEVMODEW>()`を設定
+- 有効性: `dmFields`の`DM_PELSWIDTH`、`DM_PELSHEIGHT`、`DM_DISPLAYFREQUENCY`を確認
+
+実行コマンドはStep 1と同じです。
+
+```text
+cargo run --manifest-path native/display-probe/Cargo.toml
+```
+
+adapter情報の末尾に次の2行が追加されます。
+
+```text
+  CurrentResolution: 3440x1440
+  CurrentRefreshRateHz: 144
+```
+
+APIが現在値を返さない場合や必要な`dmFields`がない場合は`unavailable`と表示します。`dmDisplayFrequency`が`0`または`1`の場合は、具体的なHzとして扱わず`driver default`と表示します。
+
+GDIの`dmDisplayFrequency`は整数値です。59.94Hzなどの厳密な分数refresh rateとの照合は、Step 4のCCD `QueryDisplayConfig`で行います。
+
+### Step 2の確認項目
+
+1. CLIが正常にbuild・実行できる。
+2. desktopに接続された各adapterに`CurrentResolution`が表示される。
+3. `CurrentRefreshRateHz`が表示される。
+4. Windows Settingsに表示される現在の解像度・refresh rateと比較する。
+5. 実行前後で解像度、refresh rate、monitor配置などが変化しない。
+
+### Step 2の完了条件
+
+現在の解像度と整数refresh rateの取得結果をWindows実機で確認できたら、Step 2は完了です。利用可能なmode一覧はStep 3、CCDによる厳密なtopology・rational refreshの取得はStep 4で実装します。
 
 ### Windows以外で実行した場合
 

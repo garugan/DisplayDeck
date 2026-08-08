@@ -19,11 +19,40 @@ fn main() {
 
         println!("Adapter {}", adapter.index);
         print_device_info("  ", &adapter.info);
+        print_current_mode("  ", adapter.current_mode.as_ref());
 
         for monitor in &adapter.monitors {
             println!();
             println!("  Monitor {}", monitor.index);
             print_device_info("    ", &monitor.info);
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn print_current_mode(indent: &str, mode: Option<&display::CurrentDisplayMode>) {
+    let Some(mode) = mode else {
+        println!("{indent}CurrentResolution: unavailable");
+        println!("{indent}CurrentRefreshRateHz: unavailable");
+        return;
+    };
+
+    match (mode.width_pixels, mode.height_pixels) {
+        (Some(width), Some(height)) => {
+            println!("{indent}CurrentResolution: {width}x{height}");
+        }
+        _ => println!("{indent}CurrentResolution: unavailable"),
+    }
+
+    match mode.refresh_rate {
+        display::RefreshRate::Hertz(hertz) => {
+            println!("{indent}CurrentRefreshRateHz: {hertz}");
+        }
+        display::RefreshRate::DriverDefault => {
+            println!("{indent}CurrentRefreshRateHz: driver default");
+        }
+        display::RefreshRate::NotReported => {
+            println!("{indent}CurrentRefreshRateHz: unavailable");
         }
     }
 }
