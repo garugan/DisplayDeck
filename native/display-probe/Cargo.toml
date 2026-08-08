@@ -1,0 +1,10 @@
+[package]
+name = "display-probe"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { version = "=0.62.2", features = [
+    "Win32_Graphics_Gdi",
+] }
