@@ -5,8 +5,9 @@ use windows::{
     Win32::Graphics::Gdi::{
         EnumDisplayDevicesW, EnumDisplaySettingsExW, DEVMODEW, DISPLAY_DEVICEW,
         DISPLAY_DEVICE_ATTACHED_TO_DESKTOP, DISPLAY_DEVICE_PRIMARY_DEVICE,
-        DM_DISPLAYFREQUENCY, DM_PELSHEIGHT, DM_PELSWIDTH, ENUM_CURRENT_SETTINGS,
-        ENUM_DISPLAY_SETTINGS_FLAGS, ENUM_DISPLAY_SETTINGS_MODE,
+        DM_BITSPERPEL, DM_DISPLAYFIXEDOUTPUT, DM_DISPLAYFLAGS, DM_DISPLAYFREQUENCY,
+        DM_DISPLAYORIENTATION, DM_PELSHEIGHT, DM_PELSWIDTH, DM_POSITION,
+        ENUM_CURRENT_SETTINGS, ENUM_DISPLAY_SETTINGS_FLAGS, ENUM_DISPLAY_SETTINGS_MODE,
     },
 };
 
@@ -14,14 +15,33 @@ use windows::{
 // the verified value local avoids enabling that otherwise-unused feature.
 const EDD_GET_DEVICE_INTERFACE_NAME: u32 = 0x0000_0001;
 
+// The Phase 1A execution record bounds the first read-only normal-mode capture
+// to indices 0..4095. If every permitted index succeeds, the capture stops at
+// the bound and is incomplete; index 4096 is never called.
+pub const MAX_ENUMERATED_DISPLAY_MODES: u32 = 4096;
+pub const MAX_ENUMERATED_DISPLAY_ADAPTERS: u32 = 32;
+pub const MAX_ENUMERATED_MONITORS_PER_ADAPTER: u32 = 32;
+
+pub fn devmode_public_size_bytes() -> u16 {
+    u16::try_from(size_of::<DEVMODEW>()).expect("DEVMODEW size must fit in a u16")
+}
+
+#[derive(Debug)]
+pub struct DisplayInventory {
+    pub adapters: Vec<DisplayAdapter>,
+    pub adapter_enumeration_status: DeviceEnumerationStatus,
+}
+
 #[derive(Debug)]
 pub struct DisplayAdapter {
     pub index: u32,
     pub info: DisplayDeviceInfo,
     pub device_name_key: Option<Vec<u16>>,
-    pub current_mode: Option<DisplayMode>,
+    pub current_mode: CurrentModeSample,
     pub available_modes: Vec<EnumeratedDisplayMode>,
+    pub mode_enumeration_status: ModeEnumerationStatus,
     pub monitors: Vec<DisplayMonitor>,
+    pub monitor_enumeration_status: DeviceEnumerationStatus,
 }
 
 #[derive(Debug)]
@@ -48,11 +68,25 @@ pub struct DisplayDeviceInfo {
     pub is_attached_to_desktop: bool,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DisplayMode {
+    pub public_size_bytes: u16,
+    pub driver_extra_bytes: u16,
+    pub field_mask: u32,
+    pub position: Option<DisplayPosition>,
+    pub orientation: Option<u32>,
+    pub fixed_output: Option<u32>,
+    pub bits_per_pixel: Option<u32>,
     pub width_pixels: Option<u32>,
     pub height_pixels: Option<u32>,
-    pub refresh_rate: RefreshRate,
+    pub display_flags: Option<u32>,
+    pub display_frequency_hz: Option<u32>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub struct DisplayPosition {
+    pub x: i32,
+    pub y: i32,
 }
 
 #[derive(Debug)]
@@ -61,28 +95,64 @@ pub struct EnumeratedDisplayMode {
     pub mode: DisplayMode,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum CurrentModeSample {
+    SampledStable(DisplayMode),
+    Unavailable,
+    Changed {
+        before: Option<DisplayMode>,
+        after: Option<DisplayMode>,
+    },
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ModeEnumerationStatus {
+    Complete,
+    EmptyOrUnavailable,
+    LimitReached { limit: u32 },
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum DeviceEnumerationStatus {
+    Complete,
+    LimitReached { limit: u32 },
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RefreshRate {
     Hertz(u32),
     DriverDefault,
     NotReported,
 }
 
-pub fn enumerate_display_adapters() -> Vec<DisplayAdapter> {
+pub fn enumerate_display_adapters() -> DisplayInventory {
     let mut adapters = Vec::new();
     let mut adapter_index = 0_u32;
 
-    loop {
+    let adapter_enumeration_status = loop {
+        if adapter_index >= MAX_ENUMERATED_DISPLAY_ADAPTERS {
+            break DeviceEnumerationStatus::LimitReached {
+                limit: MAX_ENUMERATED_DISPLAY_ADAPTERS,
+            };
+        }
+
         let Some(raw_adapter) = enum_display_device(None, adapter_index, 0) else {
-            break;
+            break DeviceEnumerationStatus::Complete;
         };
 
         // Keep the exact UTF-16 adapter name for the child-monitor calls. Converting
         // it to a Rust String first could alter malformed UTF-16 code units.
         let adapter_device_name = nul_terminated_copy(&raw_adapter.DeviceName);
-        let current_mode = current_display_mode(&adapter_device_name);
-        let available_modes = available_display_modes(&adapter_device_name);
-        let monitors = enumerate_monitors(&adapter_device_name);
+        let current_mode_before = current_display_mode(&adapter_device_name);
+        let (available_modes, mode_enumeration_status) =
+            available_display_modes(&adapter_device_name);
+        let current_mode_after = current_display_mode(&adapter_device_name);
+        let current_mode = CurrentModeSample::from_samples(
+            current_mode_before,
+            current_mode_after,
+        );
+        let (monitors, monitor_enumeration_status) =
+            enumerate_monitors(&adapter_device_name);
 
         adapters.push(DisplayAdapter {
             index: adapter_index,
@@ -90,26 +160,44 @@ pub fn enumerate_display_adapters() -> Vec<DisplayAdapter> {
             device_name_key: wide_array_to_valid_nonempty_key(&raw_adapter.DeviceName),
             current_mode,
             available_modes,
+            mode_enumeration_status,
             monitors,
+            monitor_enumeration_status,
         });
 
         let Some(next_index) = adapter_index.checked_add(1) else {
-            break;
+            break DeviceEnumerationStatus::LimitReached {
+                limit: MAX_ENUMERATED_DISPLAY_ADAPTERS,
+            };
         };
         adapter_index = next_index;
-    }
+    };
 
-    adapters
+    DisplayInventory {
+        adapters,
+        adapter_enumeration_status,
+    }
 }
 
-fn enumerate_monitors(adapter_device_name: &[u16]) -> Vec<DisplayMonitor> {
+fn enumerate_monitors(
+    adapter_device_name: &[u16],
+) -> (Vec<DisplayMonitor>, DeviceEnumerationStatus) {
     let mut monitors = Vec::new();
     let mut monitor_index = 0_u32;
 
     loop {
+        if monitor_index >= MAX_ENUMERATED_MONITORS_PER_ADAPTER {
+            return (
+                monitors,
+                DeviceEnumerationStatus::LimitReached {
+                    limit: MAX_ENUMERATED_MONITORS_PER_ADAPTER,
+                },
+            );
+        }
+
         let Some(raw_monitor) = enum_display_device(Some(adapter_device_name), monitor_index, 0)
         else {
-            break;
+            return (monitors, DeviceEnumerationStatus::Complete);
         };
         let interface_path = query_monitor_interface_path(
             adapter_device_name,
@@ -124,12 +212,15 @@ fn enumerate_monitors(adapter_device_name: &[u16]) -> Vec<DisplayMonitor> {
         });
 
         let Some(next_index) = monitor_index.checked_add(1) else {
-            break;
+            return (
+                monitors,
+                DeviceEnumerationStatus::LimitReached {
+                    limit: MAX_ENUMERATED_MONITORS_PER_ADAPTER,
+                },
+            );
         };
         monitor_index = next_index;
     }
-
-    monitors
 }
 
 fn query_monitor_interface_path(
@@ -208,7 +299,9 @@ fn current_display_mode(adapter_device_name: &[u16]) -> Option<DisplayMode> {
         .then(|| DisplayMode::from_raw(&mode))
 }
 
-fn available_display_modes(adapter_device_name: &[u16]) -> Vec<EnumeratedDisplayMode> {
+fn available_display_modes(
+    adapter_device_name: &[u16],
+) -> (Vec<EnumeratedDisplayMode>, ModeEnumerationStatus) {
     assert_eq!(
         adapter_device_name.last(),
         Some(&0),
@@ -219,6 +312,15 @@ fn available_display_modes(adapter_device_name: &[u16]) -> Vec<EnumeratedDisplay
     let mut mode_index = 0_u32;
 
     loop {
+        if mode_index >= MAX_ENUMERATED_DISPLAY_MODES {
+            return (
+                modes,
+                ModeEnumerationStatus::LimitReached {
+                    limit: MAX_ENUMERATED_DISPLAY_MODES,
+                },
+            );
+        }
+
         let mut mode = initialized_devmode();
 
         // SAFETY: `adapter_device_name` points to a NUL-terminated UTF-16 slice
@@ -236,7 +338,12 @@ fn available_display_modes(adapter_device_name: &[u16]) -> Vec<EnumeratedDisplay
         };
 
         if !succeeded.as_bool() {
-            break;
+            let status = if modes.is_empty() {
+                ModeEnumerationStatus::EmptyOrUnavailable
+            } else {
+                ModeEnumerationStatus::Complete
+            };
+            return (modes, status);
         }
 
         modes.push(EnumeratedDisplayMode {
@@ -245,12 +352,15 @@ fn available_display_modes(adapter_device_name: &[u16]) -> Vec<EnumeratedDisplay
         });
 
         let Some(next_index) = mode_index.checked_add(1) else {
-            break;
+            return (
+                modes,
+                ModeEnumerationStatus::LimitReached {
+                    limit: MAX_ENUMERATED_DISPLAY_MODES,
+                },
+            );
         };
         mode_index = next_index;
     }
-
-    modes
 }
 
 fn enum_display_device(
@@ -302,36 +412,100 @@ impl DisplayDeviceInfo {
 
 impl DisplayMode {
     fn from_raw(mode: &DEVMODEW) -> Self {
-        let width_pixels = mode
-            .dmFields
-            .contains(DM_PELSWIDTH)
-            .then_some(mode.dmPelsWidth)
-            .filter(|value| *value > 0);
-        let height_pixels = mode
-            .dmFields
-            .contains(DM_PELSHEIGHT)
-            .then_some(mode.dmPelsHeight)
-            .filter(|value| *value > 0);
-        let refresh_rate = if !mode.dmFields.contains(DM_DISPLAYFREQUENCY) {
-            RefreshRate::NotReported
-        } else if mode.dmDisplayFrequency <= 1 {
-            RefreshRate::DriverDefault
-        } else {
-            RefreshRate::Hertz(mode.dmDisplayFrequency)
-        };
+        let has_display_union_field = mode.dmFields.contains(DM_POSITION)
+            || mode.dmFields.contains(DM_DISPLAYORIENTATION)
+            || mode.dmFields.contains(DM_DISPLAYFIXEDOUTPUT);
+        let display_fields = has_display_union_field.then(|| {
+            // SAFETY: EnumDisplaySettingsExW was called for a display device and
+            // returned this initialized DEVMODEW. At least one corresponding
+            // display dmFields bit is set, so the display member of Anonymous1 is
+            // the documented active interpretation. Its fields contain only
+            // integer/wrapper values for which every bit pattern is valid. The
+            // value is copied while `mode` remains borrowed and is never retained.
+            unsafe { mode.Anonymous1.Anonymous2 }
+        });
+        let display_flags = mode.dmFields.contains(DM_DISPLAYFLAGS).then(|| {
+            // SAFETY: DM_DISPLAYFLAGS marks the display-flags member of Anonymous2
+            // as valid for this returned display DEVMODEW. The member is a u32, so
+            // every bit pattern is valid, and it is copied during this borrow.
+            unsafe { mode.Anonymous2.dmDisplayFlags }
+        });
 
         Self {
-            width_pixels,
-            height_pixels,
-            refresh_rate,
+            public_size_bytes: mode.dmSize,
+            driver_extra_bytes: mode.dmDriverExtra,
+            field_mask: mode.dmFields.0,
+            position: mode.dmFields.contains(DM_POSITION).then(|| {
+                let position = display_fields
+                    .expect("display union must be available when DM_POSITION is set")
+                    .dmPosition;
+                DisplayPosition {
+                    x: position.x,
+                    y: position.y,
+                }
+            }),
+            orientation: mode.dmFields.contains(DM_DISPLAYORIENTATION).then(|| {
+                display_fields
+                    .expect("display union must be available when orientation is set")
+                    .dmDisplayOrientation
+                    .0
+            }),
+            fixed_output: mode.dmFields.contains(DM_DISPLAYFIXEDOUTPUT).then(|| {
+                display_fields
+                    .expect("display union must be available when fixed output is set")
+                    .dmDisplayFixedOutput
+                    .0
+            }),
+            bits_per_pixel: mode
+                .dmFields
+                .contains(DM_BITSPERPEL)
+                .then_some(mode.dmBitsPerPel),
+            width_pixels: mode
+                .dmFields
+                .contains(DM_PELSWIDTH)
+                .then_some(mode.dmPelsWidth),
+            height_pixels: mode
+                .dmFields
+                .contains(DM_PELSHEIGHT)
+                .then_some(mode.dmPelsHeight),
+            display_flags,
+            display_frequency_hz: mode
+                .dmFields
+                .contains(DM_DISPLAYFREQUENCY)
+                .then_some(mode.dmDisplayFrequency),
+        }
+    }
+
+    pub fn refresh_rate(&self) -> RefreshRate {
+        match self.display_frequency_hz {
+            Some(hertz) if hertz > 1 => RefreshRate::Hertz(hertz),
+            Some(_) => RefreshRate::DriverDefault,
+            None => RefreshRate::NotReported,
+        }
+    }
+}
+
+impl CurrentModeSample {
+    fn from_samples(before: Option<DisplayMode>, after: Option<DisplayMode>) -> Self {
+        match (before, after) {
+            (Some(before), Some(after)) if before == after => Self::SampledStable(before),
+            (None, None) => Self::Unavailable,
+            (before, after) => Self::Changed { before, after },
+        }
+    }
+
+    pub fn stable_mode(&self) -> Option<&DisplayMode> {
+        match self {
+            Self::SampledStable(mode) => Some(mode),
+            Self::Unavailable | Self::Changed { .. } => None,
         }
     }
 }
 
 fn initialized_devmode() -> DEVMODEW {
     let mut mode = DEVMODEW::default();
-    mode.dmSize =
-        u16::try_from(size_of::<DEVMODEW>()).expect("DEVMODEW size must fit in a u16");
+    mode.dmSize = devmode_public_size_bytes();
+    mode.dmDriverExtra = 0;
     mode
 }
 

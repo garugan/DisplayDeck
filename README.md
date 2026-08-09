@@ -121,7 +121,7 @@ GDIの`dmDisplayFrequency`は整数値です。59.94Hzなどの厳密な分数re
 
 Step 3では、各adapterの`DeviceName`を使って`EnumDisplaySettingsExW`を繰り返し呼び、利用可能なmodeを列挙します。
 
-- mode index: `0`から開始し、APIが失敗を返すまで1ずつ増加
+- mode index: `0`から開始し、APIがfalseを返すか承認済み上限`4095`へ達するまで1ずつ増加。`4096`は呼び出さない
 - flags: `0`（`EDS_RAWMODE`は使用しない）
 - `DEVMODEW.dmSize`: 呼び出しごとに`size_of::<DEVMODEW>()`を設定
 - 有効性: `dmFields`の`DM_PELSWIDTH`、`DM_PELSHEIGHT`、`DM_DISPLAYFREQUENCY`を確認
@@ -137,6 +137,7 @@ adapter情報にmode件数と一覧が追加されます。
 
 ```text
   AvailableModes: 3
+  AvailableModesEnumeration: Complete
     Mode 0: 1920x1080 @ 60 Hz
     Mode 1: 2560x1440 @ 60 Hz
     Mode 2: 2560x1440 @ 144 Hz
@@ -144,7 +145,7 @@ adapter情報にmode件数と一覧が追加されます。
 
 同じ解像度・refresh rateが複数回表示される場合でも、列挙recordを勝手に統合しません。表示していないbit depthやorientationなどが異なる可能性があるためです。
 
-APIが1件もmodeを返さないadapterは`AvailableModes: 0`と表示します。fieldが取得できないrecordや`dmDisplayFrequency`が`0/1`のrecordは、Step 2と同じ規則で`unavailable`または`driver default`と表示します。
+APIが1件もmodeを返さないadapterは`AvailableModes: 0`と表示します。fieldが取得できないrecordや`dmDisplayFrequency`が`0/1`のrecordは、Step 2と同じ規則で`unavailable`または`driver default`と表示します。標準出力へ展開するlegacy mode行は全adapter合計8192件を上限とし、省略時も`AvailableModes`総数と`ModeRecordsOmitted`を表示します。
 
 ### Step 3の確認項目
 
@@ -304,7 +305,7 @@ GDI <-> CCD Exact Cross-map
 
 通常・安定topologyでのStep 5は完了です。hotplug中の`StaleSnapshot`は追加検証項目として未実施ですが、通常状態の完了条件には含めません。完全一致または整合性検査が成立しない別環境では推測で補完せず、そのsupport cellを`Unmapped`、`Ambiguous`、または`Inconsistent`として記録します。
 
-## Step 6: CurrentObservation統合（実装済み・Windows実機検証待ち）
+## Step 6: CurrentObservation統合（baseline実機検証完了・Step 7回帰確認待ち）
 
 Step 5で一意にcross-mapできたactive pathごとに、GDIの現在値とCCDのsource/target値を1つのread-only `CurrentObservation`へ統合します。新しいWindows API、crate dependency、`windows` feature、`unsafe`は追加していません。解像度・refresh rate・配置を変更するAPIも使用しません。
 
@@ -342,7 +343,7 @@ CCD path refreshとtarget VSyncは同じ値へ丸めません。[`DISPLAYCONFIG_
 Step 5のmapping evidenceに加え、GDI列挙の前後で取得した2つのCCD snapshotについて、CLIが保持するsource modeの全fieldとtarget modeの全field（pixel rate、H/V sync、active/total size、scanline ordering）、rotation、scaling、path rational refreshをorder-independentに比較します。mode-info indexやpath配列順だけの変化はidentity変化とみなしません。Step 6で保持・判定に使わない`DISPLAYCONFIG_VIDEO_SIGNAL_INFO`のanonymous unionは、ここでいうtarget mode fieldには含みません。特にMiracastの`vSyncFreqDivider`は解釈していないため、Step 6の`Exact`をMiracast supportまたはphysical presentation rateの保証として扱いません。
 
 - mapping evidenceが変化した場合、Step 5とStep 6を`StaleSnapshot`にする
-- mappingは同じでもcurrent mode evidenceが変化した場合、Step 6だけを`StaleSnapshot`にする
+- mappingは同じでも前後CCD current-mode evidenceが変化した場合、Step 6だけを`StaleSnapshot`にする。Step 7追加後はGDI current full tupleもmode列挙の前後で比較し、こちらが変化した場合はGDI値を確定せずStep 6関係を`Unavailable`にする
 - API error、判定に必要な値の欠落、未知のrotation、非`Exact` mappingは`Unavailable`にする。個別fieldに`Mismatch`があっても必要値が欠ける場合、全体の`Result`は`Unavailable`を優先する
 - clone topologyは1つのsourceを複数target pathが共有し、targetごとにrotationが異なり得るため、Step 6では`CloneSourceNotQualified`として`Unavailable`にする
 - 必要値がすべて揃い、knownなrotation適用後のdesktop解像度が違う場合は`Mismatch`にする
@@ -404,11 +405,151 @@ GDI / CCD Current Observations
 
 ### Step 6の完了条件
 
-実装とREADMEの確認手順は完了しています。Windows実機で上記を確認し、標準出力を保存するまではStep 6を完了扱いにしません。59.94/60、DRR、clone、hotplugなどの追加support cellは、通常の3台・extend環境とは分けてStep 8までにfail-closed分類を確認します。
+通常の3台・extend環境でWindows実機検証済みです。Step 6実装時点のunit testは`10 passed; 0 failed`で、Step 5 / Step 6はいずれも`SnapshotStatus: SampledStable`となりました。横置きの`DISPLAY1` / `DISPLAY3`、縦置きの`DISPLAY2`でrotation適用後の寸法が一致し、GDI `144` / `60`とCCD `144/1` / `60/1`の関係もすべて`Exact`でした。
+
+実機summaryは`ExactPaths=3`、`DistinctPaths=0`、`MismatchPaths=0`、`UnavailablePaths=0`、`Stale=false`です。実行前後で解像度、refresh rate、配置に変化がないことも目視確認済みとして、通常環境のStep 6 baselineは完了です。Step 7でGDI currentをfull tupleのbefore / after samplingへ強化したため、現HEADについてはStep 7の実機確認時に同じStep 6 summaryも回帰確認します。59.94/60、DRR、clone、hotplugなどの追加support cellは、通常の3台・extend環境とは分けてStep 8までにfail-closed分類を確認します。
+
+## Step 7: `DEVMODEW` candidate model（実装済み・Windows実機検証待ち）
+
+Step 7では、Step 3のnormal mode列挙結果をwidth / height / Hzだけの表示値として扱わず、`dmFields`のpresenceを含むallowlisted [`DEVMODEW`](https://learn.microsoft.com/en-us/windows/win32/api/wingdi/ns-wingdi-devmodew) tupleとして保持します。duplicate、同じ表示labelを持つ別tuple、current-not-listed、不完全field、currentとのorientation / color policy差を、推測せず別々に分類します。
+
+このStepは引き続き読み取り専用です。新しいWindows API、crate dependency、`windows` featureは追加していません。`windows = "=0.62.2"`と`Win32_Devices_Display` / `Win32_Graphics_Gdi`の2 featureを継続し、使用するmode APIは既存の[`EnumDisplaySettingsExW`](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-enumdisplaysettingsexw)だけです。current取得とindex列挙はいずれもflags `0`です。
+
+次は使用しません。
+
+- `ENUM_REGISTRY_SETTINGS`
+- `EDS_RAWMODE`
+- `EDS_ROTATEDMODE`
+- `ChangeDisplaySettings*` / `CDS_*`
+- `SetDisplayConfig` / `SDC_*`
+- registry write、PowerShell、cmd、process spawn
+
+### 保持するallowlisted tuple
+
+各current / indexed recordから次をRustの値へコピーします。inactiveなunion field、raw structure bytes、pointer、`dmDriverExtra`のprivate bytesは保持しません。
+
+- raw `dmFields`
+- `dmPosition`
+- `dmDisplayOrientation`
+- `dmDisplayFixedOutput`
+- `dmBitsPerPel`
+- `dmPelsWidth` / `dmPelsHeight`
+- raw `dmDisplayFlags`
+- raw `dmDisplayFrequency`
+- 返却された`dmSize` / `dmDriverExtra`（envelope検査用の整数値のみ）
+
+field valueは対応する`dmFields` bitがある場合だけ採用します。optional fieldのabsenceを`0`、default orientation、default fixed outputなどへ変換しません。frequency `0`と`1`も同じ値へ潰さず、それぞれraw driver-default markerとして保持します。
+
+`dmBitsPerPel`、width、height、display flags、frequencyのpresenceを、DisplayDeckがnormal candidateを完全と認定する保守的な必須条件にします。これはMicrosoftがすべてのdriverへ保証する返却maskではありません。欠落recordも観測結果として残し、API失敗ではなく`Incomplete` / `HardExcluded`とします。
+
+次の場合も`Incomplete`です。
+
+- `dmSize`が期待するpublic `DEVMODEW` sizeと異なる
+- `dmDriverExtra != 0`
+- allowlist外の`dmFields` bitがある
+- 必須fieldの欠落、またはpresence bitに対応する値をcaptureできない
+- bits per pixel、width、heightが0
+- orientationが`0..=3`以外、fixed outputが`0..=2`以外
+- `dmDisplayFlags`にMicrosoft SDK / `windows 0.62.2` bindingでknownなvalue mask外のbitがある。legacy grayscaleまたはtext-mode bitはknownでも初期対象外としてhard excludeする
+
+`dmDisplayFrequency`が`0`または`1`でもtuple自体のpresenceは完全に保持できますが、具体的なHzやexpected readbackを確定できないため`HardExcluded`です。`dmColor`はprinter fieldなのでdisplay color evidenceには使用しません。bits per pixelがcurrentと同じでもHDR、色空間、bits per channel、advanced colorの保持は証明できず、`AdvancedColorEvidence: NotObserved`と表示します。
+
+### identity、duplicate、current membership
+
+同じrun内の`EnumerationProvenance`、人間向け`DisplayLabel`、`ApplyTuple`、`ExpectedObservation`を別modelにしています。adapter / enumeration indexだけではsnapshotやtupleへ再解決できないため、これを`CandidateIdentity`とは呼びません。Step 7の`CandidateIdentity`とselection tokenは明示的に`NotIssued`です。
+
+- full tuple equalityはraw field mask、field presence、allowlisted valueをすべて完全一致で比較する
+- 同じ完全tupleが複数indexにある場合は、recordを削除せず`ExactTupleDuplicate`とする
+- width / height / raw frequencyのlabelが同じでも、bits per pixel、flags、position、orientation、fixed output、presenceが違えば`ProjectionCollision`とし、統合しない
+- currentはnormal listとfull tupleで比較し、1件だけなら`ListedUnique`、複数なら`AmbiguousExactRecords`、0件なら`NotListedExact`とする
+- visible labelだけ一致するrecordは`projection-only`診断として残すが、current exact matchへ昇格させない
+- 4096 recordの上限に達した場合は列挙不完全とし、current-not-listedを断定しない
+
+各adapterではcurrent-before → normal list → current-afterの順で読み取ります。前後current tupleが違う場合は`ChangedDuringCapture`として候補をfail closedにします。normal list自体は1回だけ列挙するため、出力はcandidate list全体のatomic stabilityを主張しません。ABAや列挙後の変更もStep 5 / 6と同様に残るsampling上の限界です。
+
+adapterはindex `0..=31`、monitorは各adapterで`0..=31`、normal modeは各adapterで`0..=4095`だけを呼び出します。許可範囲をすべて使った場合は次のindexをprobeせず`LimitReached`とし、該当inventory / candidateをfail closedにします。これによりadapter最大32、monitor最大32/adapter・合計最大1024、mode最大4096/adapterのread-side allocation boundを維持します。
+
+### policyとeligibility
+
+currentとcandidateのposition、orientation、fixed output、bits per pixel、display flagsをfieldごとに`Exact`、`Different`、`NotReported`、`PresenceMismatch`で比較します。absenceや違いを補完せず、`Exact`以外はこのStepの候補を`HardExcluded`にします。desktop未接続adapter、32 bpp未満、列挙empty/unavailable、列挙上限到達もhard exclusionです。
+
+tupleが完全でcurrentがnormal listへ一意に含まれ、policy fieldがすべて`Exact`でも、candidate reportはStep 5のexact target mappingやsupport fingerprintへまだbindされず、非current candidateのCCD rational / source / target readbackも取得できません。そのためStep 7が生成できる最も強い分類は`LabUnqualified`で、これらをqualification gapとして明示します。`ProductAllowed`は常に0です。selection token、`canApply=true`、`DEVMODEW`再構築、preflight、display変更は実装しません。
+
+### `unsafe`
+
+追加した`unsafe`は、返却された`DEVMODEW`のdocumented display unionを読む2箇所だけです。
+
+- `Anonymous1.Anonymous2`からposition / orientation / fixed outputをコピー
+- `Anonymous2.dmDisplayFlags`からraw display flagsをコピー
+
+どちらも対応する`dmFields` bitを先に確認し、全bit patternが有効な整数/wrapperを返却後のborrow中にコピーします。raw unionやpointerをsafe domain modelへ公開しません。既存FFI callのflagsは引き続き読み取り専用の`0`です。
+
+### 実行手順と出力
+
+Windows上のリポジトリルートで実行します。
+
+```text
+cargo test --manifest-path native/display-probe/Cargo.toml
+cargo run --manifest-path native/display-probe/Cargo.toml
+```
+
+Step 7追加後のunit testは、既存Step 6の10件とcandidate modelの15件、合計25件です。標準出力末尾に次のsectionが追加されます。tuple groupは全recordを1回だけ保持し、recordごとに全peer indexを複製しません。詳細candidateは全adapter合計1024件、legacy mode行とgroup indexはそれぞれ合計8192件まで標準出力へ展開します。省略分もmodel、summary、group countには含めるため、境界入力でも重複分類のmemory / stdoutが二次増加しません。
+
+```text
+GDI Mode Candidate Classification
+  CaptureScope: one bounded normal-mode enumeration (flags=0), bracketed by current-mode samples
+  CandidateListStability: not claimed (single enumeration)
+  Mutation: disabled; ProductAllowed=0; SelectionTokens=0
+  DetailedRecordOutputLimit: 1024 total
+  GroupIndexOutputLimit: 8192 total
+  AdapterEnumerationStatus: Complete
+  Adapter 0
+    DeviceName: \\.\DISPLAY1
+    MonitorEnumerationStatus: Complete
+    EnumerationStatus: Complete
+    CurrentTupleStatus: Complete
+    CurrentMembership: ListedUnique (Mode ...)
+    CandidateRecords: ...
+    ExactDuplicateGroup ...: Modes ...
+    ProjectionCollisionGroup ...: Modes ...
+    Mode 0
+      EnumerationProvenance: adapter=0 enumerationIndex=0
+      CandidateIdentity: NotIssued (read-only Step 7)
+      DisplayLabel: 640x480 @ 60 Hz (raw integer)
+      ApplyTuple: dmSize=... dmDriverExtra=0 dmFields=0x... position=... orientation=... fixedOutput=... bitsPerPixel=... size=640x480 displayFlags=0x... frequency=60 Hz (raw integer)
+      TupleStatus: Complete
+      ExactDuplicate: ...
+      ProjectionCollision: ...
+      CurrentRelation: ...
+      PolicyRelations: ...
+      AdvancedColorEvidence: NotObserved
+      ExpectedObservation: Missing (...)
+      Eligibility: LabUnqualified (...) または HardExcluded (...)
+      SelectionToken: NotIssued (read-only Step 7)
+    Summary: ... ProductAllowed=0 SelectionTokens=0
+```
+
+### Step 7の確認項目
+
+1. `cargo test`で25件すべて成功し、CLIがWindowsでbuild・実行できる。
+2. adapter / monitor / modeの各enumeration status、`CurrentTupleStatus`、`CurrentMembership`を保存し、通常環境で`Complete`となる。
+3. currentがfull tupleで1件、複数、0件のどれに分類されたかを、projection-only一致と分けて確認する。
+4. 既存の見た目が同じmodeについて、`ExactTupleDuplicate`か`ProjectionCollision`かをfull tupleで説明できる。
+5. `dmFields`、position、orientation、fixed output、bits per pixel、display flags、raw frequencyがpresence込みで表示される。
+6. incomplete / unknown recordが推測で`Complete`へ昇格しない。raw driver-default `0` / `1`はpresence込みtupleとして`Complete`になり得るが、具体Hzまたはeligibleへ昇格せず`HardExcluded`になる。
+7. candidateごとのpolicy relationと`ExpectedObservation: Missing`の理由が表示される。
+8. summaryが常に`ProductAllowed=0`、`SelectionTokens=0`である。
+9. `CandidateIdentity`とselection tokenが発行されず、mapping / support fingerprint / expected observationの不足がqualification gapとして残る。
+10. 現在値の取得経路もbefore / after full tuple samplingへ変わったため、現HEADでStep 5 / 6も再確認し、通常の3台環境でStep 5 `ExactPaths=3`、Step 6 `ExactPaths=3` / `UnavailablePaths=0`の回帰がない。
+11. 実行前後で解像度、refresh rate、monitor配置などが変化しない。
+
+### Step 7の完了条件
+
+実装と確認手順は完了しています。Windows実機でunit test、full tuple、duplicate / projection collision、current membership、policy、summaryを確認して標準出力を保存するまでは、Step 7を完了扱いにしません。current-not-listed等をその実機で再現できない場合は通常cellの結果を記録し、追加support cellのfail-closed確認をStep 8へ残します。
 
 ## 初期リリースまでの実装roadmap
 
-現在、Step 1〜5のread-only display列挙、mode取得、CCD取得、GDI ↔ CCD exact cross-mapまで完了しています。Step 6の`CurrentObservation`統合は実装済みで、Windows実機検証待ちです。検証完了後に着手するのはStep 7です。
+Step 1〜6のread-only display列挙、mode取得、CCD取得、GDI ↔ CCD exact cross-map、`CurrentObservation`統合はStep 6 commit時点でWindows実機検証済みです。Step 7ではGDI current samplingを強化したため、現HEADのStep 5 / 6回帰確認とStep 7 candidate modelのWindows実機検証を待っています。
 
 ### Read-only CLIの完成
 
@@ -441,7 +582,7 @@ GDI / CCD Current Observations
 
 - Step 9のPhase 2Aとそのevidence reviewが完了するまで、display設定変更APIを実装・実行しない。
 - Step 10以降のmutation、watchdog recovery、product integration、installerは、それぞれ前提phaseの完了と別のhuman authorizationを必要とする。
-- Step 1〜6の承認や成功を、後続mutation phaseの承認として扱わない。
+- Step 1〜7の承認や成功を、後続mutation phaseの承認として扱わない。
 - 初期リリースの実装完了はStep 17のpackaged検証とrelease判定までとする。
 - scale変更は初期リリースに含めず、別のPhase 9技術スパイクとして扱う。
 

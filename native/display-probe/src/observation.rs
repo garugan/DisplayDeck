@@ -201,7 +201,8 @@ fn observe_exact_path(
     monitor_index: u32,
 ) -> CurrentObservation {
     let rotation = Rotation::from_raw(path.target.rotation);
-    let gdi_resolution = gdi_dimensions(adapter.current_mode.as_ref());
+    let current_mode = adapter.current_mode.stable_mode();
+    let gdi_resolution = gdi_dimensions(current_mode);
     let ccd_source_resolution = path.source_mode.as_ref().and_then(|mode| {
         Dimensions::new(mode.width_pixels, mode.height_pixels)
     });
@@ -220,7 +221,7 @@ fn observe_exact_path(
         ccd_target_active_resolution,
     );
 
-    let gdi_refresh = gdi_refresh(adapter.current_mode.as_ref());
+    let gdi_refresh = gdi_refresh(current_mode);
     let ccd_path_refresh = path.target.refresh_rate;
     let ccd_target_vsync = path.target_mode.as_ref().map(|mode| mode.vertical_sync);
     let gdi_vs_ccd_path_refresh = compare_gdi_to_rational(gdi_refresh, ccd_path_refresh);
@@ -269,7 +270,7 @@ fn gdi_dimensions(mode: Option<&DisplayMode>) -> Option<Dimensions> {
 }
 
 fn gdi_refresh(mode: Option<&DisplayMode>) -> GdiRefresh {
-    match mode.map(|mode| mode.refresh_rate) {
+    match mode.map(DisplayMode::refresh_rate) {
         Some(RefreshRate::Hertz(hertz)) if hertz > 1 => GdiRefresh::Hertz(hertz),
         Some(RefreshRate::Hertz(_)) | Some(RefreshRate::DriverDefault) => {
             GdiRefresh::DriverDefault

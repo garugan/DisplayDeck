@@ -1,6 +1,8 @@
 #![deny(unsafe_op_in_unsafe_fn)]
 
 #[cfg(target_os = "windows")]
+mod candidate;
+#[cfg(target_os = "windows")]
 mod ccd;
 #[cfg(target_os = "windows")]
 mod display;
@@ -15,17 +17,29 @@ const TARGET_NAME_FLAG_FRIENDLY_NAME_FROM_EDID: u32 = 1 << 0;
 const TARGET_NAME_FLAG_FRIENDLY_NAME_FORCED: u32 = 1 << 1;
 #[cfg(target_os = "windows")]
 const TARGET_NAME_FLAG_EDID_IDS_VALID: u32 = 1 << 2;
+#[cfg(target_os = "windows")]
+const MAX_PRINTED_AVAILABLE_MODE_RECORDS: usize = 8_192;
+#[cfg(target_os = "windows")]
+const MAX_PRINTED_CANDIDATE_GROUP_INDICES: usize = 8_192;
 
 #[cfg(target_os = "windows")]
 fn main() {
     let ccd_snapshot = query_and_print_ccd_snapshot();
     println!();
 
-    let adapters = display::enumerate_display_adapters();
+    let inventory = display::enumerate_display_adapters();
+    let adapters = &inventory.adapters;
     let verification_snapshot = ccd_snapshot
         .as_ref()
         .map(|_| ccd::query_active_display_config());
 
+    println!("GDI Display Inventory");
+    print_device_enumeration_status(
+        "  AdapterEnumerationStatus",
+        inventory.adapter_enumeration_status,
+    );
+    let mut remaining_available_mode_records =
+        MAX_PRINTED_AVAILABLE_MODE_RECORDS;
     if adapters.is_empty() {
         println!("No display adapters found.");
     } else {
@@ -36,8 +50,17 @@ fn main() {
 
             println!("Adapter {}", adapter.index);
             print_device_info("  ", &adapter.info);
-            print_current_mode("  ", adapter.current_mode.as_ref());
-            print_available_modes("  ", &adapter.available_modes);
+            print_current_mode("  ", &adapter.current_mode);
+            print_available_modes(
+                "  ",
+                &adapter.available_modes,
+                adapter.mode_enumeration_status,
+                &mut remaining_available_mode_records,
+            );
+            print_device_enumeration_status(
+                "  MonitorEnumerationStatus",
+                adapter.monitor_enumeration_status,
+            );
 
             for monitor in &adapter.monitors {
                 println!();
@@ -52,7 +75,7 @@ fn main() {
     let cross_map = print_cross_map(
         ccd_snapshot.as_ref(),
         verification_snapshot.as_ref(),
-        &adapters,
+        &inventory,
     );
 
     println!();
@@ -60,8 +83,12 @@ fn main() {
         ccd_snapshot.as_ref(),
         verification_snapshot.as_ref(),
         cross_map.as_ref(),
-        &adapters,
+        adapters,
     );
+
+    println!();
+    let candidate_catalog = candidate::build_candidate_catalog(&inventory);
+    print_candidate_catalog(&candidate_catalog);
 }
 
 #[cfg(target_os = "windows")]
@@ -194,9 +221,17 @@ fn query_and_print_ccd_snapshot() -> Option<ccd::CcdSnapshot> {
 fn print_cross_map(
     snapshot: Option<&ccd::CcdSnapshot>,
     verification_snapshot: Option<&Result<ccd::CcdSnapshot, ccd::CcdQueryError>>,
-    adapters: &[display::DisplayAdapter],
+    inventory: &display::DisplayInventory,
 ) -> Option<mapping::CrossMap> {
     println!("GDI <-> CCD Exact Cross-map");
+
+    if !display_inventory_is_complete(inventory) {
+        println!("  SnapshotStatus: BoundExceeded");
+        println!("  GDI adapter/monitor enumeration reached a safety limit.");
+        println!("  Exact mapping was not finalized.");
+        print_empty_mapping_summary(false);
+        return None;
+    }
 
     let Some(snapshot) = snapshot else {
         println!("  SnapshotStatus: ApiError (initial CCD query failed)");
@@ -228,7 +263,7 @@ fn print_cross_map(
     }
 
     println!("  SnapshotStatus: SampledStable");
-    let cross_map = mapping::cross_map(snapshot, adapters);
+    let cross_map = mapping::cross_map(snapshot, &inventory.adapters);
 
     for path in &cross_map.paths {
         println!("  Path {}", path.path_index);
@@ -543,7 +578,45 @@ fn format_optional_bool(value: Option<bool>) -> &'static str {
 }
 
 #[cfg(target_os = "windows")]
-fn print_current_mode(indent: &str, mode: Option<&display::DisplayMode>) {
+fn print_device_enumeration_status(
+    label: &str,
+    status: display::DeviceEnumerationStatus,
+) {
+    match status {
+        display::DeviceEnumerationStatus::Complete => println!("{label}: Complete"),
+        display::DeviceEnumerationStatus::LimitReached { limit } => {
+            println!("{label}: Incomplete (limit {limit} reached)");
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn display_inventory_is_complete(inventory: &display::DisplayInventory) -> bool {
+    inventory.adapter_enumeration_status
+        == display::DeviceEnumerationStatus::Complete
+        && inventory.adapters.iter().all(|adapter| {
+            adapter.monitor_enumeration_status
+                == display::DeviceEnumerationStatus::Complete
+        })
+}
+
+#[cfg(target_os = "windows")]
+fn print_current_mode(indent: &str, sample: &display::CurrentModeSample) {
+    let mode = match sample {
+        display::CurrentModeSample::SampledStable(mode) => {
+            println!("{indent}CurrentModeSample: SampledStable");
+            Some(mode)
+        }
+        display::CurrentModeSample::Unavailable => {
+            println!("{indent}CurrentModeSample: unavailable");
+            None
+        }
+        display::CurrentModeSample::Changed { .. } => {
+            println!("{indent}CurrentModeSample: changed during candidate capture");
+            None
+        }
+    };
+
     let Some(mode) = mode else {
         println!("{indent}CurrentResolution: unavailable");
         println!("{indent}CurrentRefreshRateHz: unavailable");
@@ -551,13 +624,13 @@ fn print_current_mode(indent: &str, mode: Option<&display::DisplayMode>) {
     };
 
     match (mode.width_pixels, mode.height_pixels) {
-        (Some(width), Some(height)) => {
+        (Some(width), Some(height)) if width > 0 && height > 0 => {
             println!("{indent}CurrentResolution: {width}x{height}");
         }
         _ => println!("{indent}CurrentResolution: unavailable"),
     }
 
-    match mode.refresh_rate {
+    match mode.refresh_rate() {
         display::RefreshRate::Hertz(hertz) => {
             println!("{indent}CurrentRefreshRateHz: {hertz}");
         }
@@ -571,16 +644,37 @@ fn print_current_mode(indent: &str, mode: Option<&display::DisplayMode>) {
 }
 
 #[cfg(target_os = "windows")]
-fn print_available_modes(indent: &str, modes: &[display::EnumeratedDisplayMode]) {
+fn print_available_modes(
+    indent: &str,
+    modes: &[display::EnumeratedDisplayMode],
+    status: display::ModeEnumerationStatus,
+    remaining_records: &mut usize,
+) {
     println!("{indent}AvailableModes: {}", modes.len());
+    match status {
+        display::ModeEnumerationStatus::Complete => {
+            println!("{indent}AvailableModesEnumeration: Complete");
+        }
+        display::ModeEnumerationStatus::EmptyOrUnavailable => {
+            println!("{indent}AvailableModesEnumeration: empty or unavailable");
+        }
+        display::ModeEnumerationStatus::LimitReached { limit } => {
+            println!(
+                "{indent}AvailableModesEnumeration: Incomplete (limit {limit} reached)"
+            );
+        }
+    }
 
-    for enumerated_mode in modes {
+    let records_to_print = (*remaining_records).min(modes.len());
+    for enumerated_mode in modes.iter().take(records_to_print) {
         let mode = &enumerated_mode.mode;
         let resolution = match (mode.width_pixels, mode.height_pixels) {
-            (Some(width), Some(height)) => format!("{width}x{height}"),
+            (Some(width), Some(height)) if width > 0 && height > 0 => {
+                format!("{width}x{height}")
+            }
             _ => "resolution unavailable".to_owned(),
         };
-        let refresh_rate = match mode.refresh_rate {
+        let refresh_rate = match mode.refresh_rate() {
             display::RefreshRate::Hertz(hertz) => format!("{hertz} Hz"),
             display::RefreshRate::DriverDefault => "driver default".to_owned(),
             display::RefreshRate::NotReported => "refresh unavailable".to_owned(),
@@ -591,6 +685,281 @@ fn print_available_modes(indent: &str, modes: &[display::EnumeratedDisplayMode])
             enumerated_mode.index
         );
     }
+    *remaining_records -= records_to_print;
+    let omitted_records = modes.len() - records_to_print;
+    if omitted_records > 0 {
+        println!(
+            "{indent}  ModeRecordsOmitted: {omitted_records} (global output limit {})",
+            MAX_PRINTED_AVAILABLE_MODE_RECORDS
+        );
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn print_candidate_catalog(catalog: &candidate::CandidateCatalog) {
+    const MAX_DETAILED_RECORDS: usize = 1_024;
+
+    println!("GDI Mode Candidate Classification");
+    println!(
+        "  CaptureScope: one bounded normal-mode enumeration (flags=0), bracketed by current-mode samples"
+    );
+    println!("  CandidateListStability: not claimed (single enumeration)");
+    println!("  Mutation: disabled; ProductAllowed=0; SelectionTokens=0");
+    println!("  DetailedRecordOutputLimit: {MAX_DETAILED_RECORDS} total");
+    println!(
+        "  GroupIndexOutputLimit: {} total",
+        MAX_PRINTED_CANDIDATE_GROUP_INDICES
+    );
+    print_device_enumeration_status(
+        "  AdapterEnumerationStatus",
+        catalog.adapter_enumeration_status,
+    );
+
+    let mut remaining_detailed_records = MAX_DETAILED_RECORDS;
+    let mut remaining_group_indices = MAX_PRINTED_CANDIDATE_GROUP_INDICES;
+
+    for adapter in &catalog.adapters {
+        println!("  Adapter {}", adapter.adapter_index);
+        println!(
+            "    DeviceName: {}",
+            escape_log_text(&adapter.device_name)
+        );
+        print_device_enumeration_status(
+            "    MonitorEnumerationStatus",
+            adapter.monitor_enumeration_status,
+        );
+        match adapter.enumeration_status {
+            display::ModeEnumerationStatus::Complete => {
+                println!("    EnumerationStatus: Complete");
+            }
+            display::ModeEnumerationStatus::EmptyOrUnavailable => {
+                println!("    EnumerationStatus: EmptyOrUnavailable");
+            }
+            display::ModeEnumerationStatus::LimitReached { limit } => {
+                println!(
+                    "    EnumerationStatus: Incomplete (limit {limit} reached)"
+                );
+            }
+        }
+        println!("    CurrentTupleStatus: {}", adapter.current_tuple_status);
+        println!("    CurrentMembership: {}", adapter.current_membership);
+        println!("    CandidateRecords: {}", adapter.candidates.len());
+        print_candidate_groups(
+            "    ExactDuplicateGroup",
+            &adapter.exact_duplicate_groups,
+            &mut remaining_group_indices,
+        );
+        print_candidate_groups(
+            "    ProjectionCollisionGroup",
+            &adapter.projection_collision_groups,
+            &mut remaining_group_indices,
+        );
+
+        let records_to_print = remaining_detailed_records.min(adapter.candidates.len());
+        for mode in adapter.candidates.iter().take(records_to_print) {
+            println!("    Mode {}", mode.provenance.enumeration_index);
+            println!(
+                "      EnumerationProvenance: adapter={} enumerationIndex={}",
+                mode.provenance.adapter_index, mode.provenance.enumeration_index
+            );
+            println!("      CandidateIdentity: {}", mode.candidate_identity);
+            println!("      DisplayLabel: {}", mode.display_label);
+            println!(
+                concat!(
+                    "      ApplyTuple: dmSize={} dmDriverExtra={} dmFields=0x{:08X} ",
+                    "position={} orientation={} fixedOutput={} bitsPerPixel={} ",
+                    "size={} displayFlags={} frequency={}"
+                ),
+                mode.public_size_bytes,
+                mode.driver_extra_bytes,
+                mode.apply_tuple.field_mask,
+                format_candidate_position(mode.apply_tuple.position),
+                format_candidate_u32(mode.apply_tuple.orientation),
+                format_candidate_u32(mode.apply_tuple.fixed_output),
+                format_candidate_u32(mode.apply_tuple.bits_per_pixel),
+                format_candidate_size(
+                    mode.apply_tuple.width_pixels,
+                    mode.apply_tuple.height_pixels
+                ),
+                format_candidate_hex(mode.apply_tuple.display_flags),
+                format_candidate_frequency(mode.apply_tuple.display_frequency_hz)
+            );
+            if mode.tuple_issues.is_empty() {
+                println!("      TupleStatus: {}", mode.tuple_status);
+            } else {
+                println!(
+                    "      TupleStatus: {} ({})",
+                    mode.tuple_status,
+                    format_debug_values(&mode.tuple_issues)
+                );
+            }
+            println!("      ExactDuplicate: {}", mode.exact_duplicate);
+            match mode.projection_collision {
+                Some(group) => println!(
+                    "      ProjectionCollision: Group {} / {} records",
+                    group.group_id, group.record_count
+                ),
+                None => println!("      ProjectionCollision: none"),
+            }
+            println!("      CurrentRelation: {}", mode.current_relation);
+            println!(
+                concat!(
+                    "      PolicyRelations: position={} orientation={} fixedOutput={} ",
+                    "bitsPerPixel={} displayFlags={}"
+                ),
+                mode.policy_relations.position,
+                mode.policy_relations.orientation,
+                mode.policy_relations.fixed_output,
+                mode.policy_relations.bits_per_pixel,
+                mode.policy_relations.display_flags
+            );
+            println!(
+                "      AdvancedColorEvidence: {}",
+                mode.advanced_color_evidence
+            );
+            println!(
+                "      ExpectedObservation: {}",
+                mode.expected_observation
+            );
+            println!("      Eligibility: {}", mode.eligibility);
+            println!("      SelectionToken: NotIssued (read-only Step 7)");
+        }
+        remaining_detailed_records -= records_to_print;
+        let omitted_records = adapter.candidates.len() - records_to_print;
+        if omitted_records > 0 {
+            println!(
+                "    DetailedCandidateRecordsOmitted: {omitted_records} (summary and groups include all records)"
+            );
+        }
+
+        print_candidate_summary("    ", adapter.summary);
+    }
+
+    println!("  Total");
+    print_candidate_summary("    ", catalog.summary);
+}
+
+#[cfg(target_os = "windows")]
+fn print_candidate_groups(
+    label: &str,
+    groups: &[candidate::CandidateRecordGroup],
+    remaining_indices: &mut usize,
+) {
+    if groups.is_empty() {
+        println!("{label}s: none");
+        return;
+    }
+
+    for (group_position, group) in groups.iter().enumerate() {
+        if *remaining_indices == 0 {
+            println!(
+                "{label}sOmitted: {} groups (global output limit reached)",
+                groups.len() - group_position
+            );
+            break;
+        }
+
+        let indices_to_print = (*remaining_indices).min(group.mode_indices.len());
+        let omitted_indices = group.mode_indices.len() - indices_to_print;
+        if omitted_indices == 0 {
+            println!(
+                "{label} {}: Modes {}",
+                group.group_id,
+                format_candidate_indices(&group.mode_indices)
+            );
+        } else {
+            println!(
+                "{label} {}: Modes {} (+{} indices omitted)",
+                group.group_id,
+                format_candidate_indices(&group.mode_indices[..indices_to_print]),
+                omitted_indices
+            );
+        }
+        *remaining_indices -= indices_to_print;
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn print_candidate_summary(indent: &str, summary: candidate::CandidateSummary) {
+    println!(
+        concat!(
+            "{indent}Summary: Records={} Complete={} Incomplete={} ",
+            "ExactDuplicateGroups={} ExactDuplicateRecords={} ",
+            "ProjectionCollisionRecords={} LabUnqualified={} HardExcluded={} ",
+            "ProductAllowed={} SelectionTokens={}"
+        ),
+        summary.records,
+        summary.complete_records,
+        summary.incomplete_records,
+        summary.exact_duplicate_groups,
+        summary.exact_duplicate_records,
+        summary.projection_collision_records,
+        summary.lab_unqualified_records,
+        summary.hard_excluded_records,
+        summary.product_allowed_records,
+        summary.selection_tokens_issued
+    );
+}
+
+#[cfg(target_os = "windows")]
+fn format_candidate_position(value: Option<display::DisplayPosition>) -> String {
+    value
+        .map(|position| format!("({},{})", position.x, position.y))
+        .unwrap_or_else(|| "not reported".to_owned())
+}
+
+#[cfg(target_os = "windows")]
+fn format_candidate_u32(value: Option<u32>) -> String {
+    value
+        .map(|raw| raw.to_string())
+        .unwrap_or_else(|| "not reported".to_owned())
+}
+
+#[cfg(target_os = "windows")]
+fn format_candidate_hex(value: Option<u32>) -> String {
+    value
+        .map(|raw| format!("0x{raw:08X}"))
+        .unwrap_or_else(|| "not reported".to_owned())
+}
+
+#[cfg(target_os = "windows")]
+fn format_candidate_size(width: Option<u32>, height: Option<u32>) -> String {
+    match (width, height) {
+        (Some(width), Some(height)) => format!("{width}x{height}"),
+        _ => "not reported".to_owned(),
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn format_candidate_frequency(value: Option<u32>) -> String {
+    match value {
+        Some(0) => "driver default (raw 0)".to_owned(),
+        Some(1) => "driver default (raw 1)".to_owned(),
+        Some(hertz) => format!("{hertz} Hz (raw integer)"),
+        None => "not reported".to_owned(),
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn format_candidate_indices(indices: &[u32]) -> String {
+    if indices.is_empty() {
+        return "none".to_owned();
+    }
+
+    indices
+        .iter()
+        .map(u32::to_string)
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+#[cfg(target_os = "windows")]
+fn format_debug_values<T: std::fmt::Debug>(values: &[T]) -> String {
+    values
+        .iter()
+        .map(|value| format!("{value:?}"))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 #[cfg(target_os = "windows")]
