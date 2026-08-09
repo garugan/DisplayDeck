@@ -10,10 +10,15 @@ use windows::{
     },
 };
 
+// windows 0.62.2 exposes this Win32 constant from WindowsAndMessaging. Keeping
+// the verified value local avoids enabling that otherwise-unused feature.
+const EDD_GET_DEVICE_INTERFACE_NAME: u32 = 0x0000_0001;
+
 #[derive(Debug)]
 pub struct DisplayAdapter {
     pub index: u32,
     pub info: DisplayDeviceInfo,
+    pub device_name_key: Option<Vec<u16>>,
     pub current_mode: Option<DisplayMode>,
     pub available_modes: Vec<EnumeratedDisplayMode>,
     pub monitors: Vec<DisplayMonitor>,
@@ -23,6 +28,14 @@ pub struct DisplayAdapter {
 pub struct DisplayMonitor {
     pub index: u32,
     pub info: DisplayDeviceInfo,
+    pub interface_path: MonitorInterfacePath,
+}
+
+#[derive(Debug)]
+pub enum MonitorInterfacePath {
+    Available { value: String, key: Vec<u16> },
+    Unavailable,
+    InconsistentEnumeration,
 }
 
 #[derive(Debug)]
@@ -60,7 +73,7 @@ pub fn enumerate_display_adapters() -> Vec<DisplayAdapter> {
     let mut adapter_index = 0_u32;
 
     loop {
-        let Some(raw_adapter) = enum_display_device(None, adapter_index) else {
+        let Some(raw_adapter) = enum_display_device(None, adapter_index, 0) else {
             break;
         };
 
@@ -74,6 +87,7 @@ pub fn enumerate_display_adapters() -> Vec<DisplayAdapter> {
         adapters.push(DisplayAdapter {
             index: adapter_index,
             info: DisplayDeviceInfo::from_raw(&raw_adapter),
+            device_name_key: wide_array_to_valid_nonempty_key(&raw_adapter.DeviceName),
             current_mode,
             available_modes,
             monitors,
@@ -93,15 +107,20 @@ fn enumerate_monitors(adapter_device_name: &[u16]) -> Vec<DisplayMonitor> {
     let mut monitor_index = 0_u32;
 
     loop {
-        let Some(raw_monitor) =
-            enum_display_device(Some(adapter_device_name), monitor_index)
+        let Some(raw_monitor) = enum_display_device(Some(adapter_device_name), monitor_index, 0)
         else {
             break;
         };
+        let interface_path = query_monitor_interface_path(
+            adapter_device_name,
+            monitor_index,
+            &raw_monitor,
+        );
 
         monitors.push(DisplayMonitor {
             index: monitor_index,
             info: DisplayDeviceInfo::from_raw(&raw_monitor),
+            interface_path,
         });
 
         let Some(next_index) = monitor_index.checked_add(1) else {
@@ -111,6 +130,53 @@ fn enumerate_monitors(adapter_device_name: &[u16]) -> Vec<DisplayMonitor> {
     }
 
     monitors
+}
+
+fn query_monitor_interface_path(
+    adapter_device_name: &[u16],
+    monitor_index: u32,
+    expected_monitor: &DISPLAY_DEVICEW,
+) -> MonitorInterfacePath {
+    let Some(interface_record) = enum_display_device(
+        Some(adapter_device_name),
+        monitor_index,
+        EDD_GET_DEVICE_INTERFACE_NAME,
+    ) else {
+        return MonitorInterfacePath::Unavailable;
+    };
+
+    if !same_monitor_enumeration_record(expected_monitor, &interface_record) {
+        return MonitorInterfacePath::InconsistentEnumeration;
+    }
+
+    let Some(key) = wide_array_to_valid_nonempty_key(&interface_record.DeviceID) else {
+        return MonitorInterfacePath::Unavailable;
+    };
+    let value = String::from_utf16(&key)
+        .expect("validated monitor interface-path UTF-16 must remain valid");
+
+    MonitorInterfacePath::Available { value, key }
+}
+
+fn same_monitor_enumeration_record(
+    expected: &DISPLAY_DEVICEW,
+    observed: &DISPLAY_DEVICEW,
+) -> bool {
+    let expected_name = wide_array_to_valid_nonempty_key(&expected.DeviceName);
+    let observed_name = wide_array_to_valid_nonempty_key(&observed.DeviceName);
+
+    expected_name.is_some()
+        && expected_name == observed_name
+        && valid_wide_arrays_equal(&expected.DeviceString, &observed.DeviceString)
+        && valid_wide_arrays_equal(&expected.DeviceKey, &observed.DeviceKey)
+        && expected.StateFlags == observed.StateFlags
+}
+
+fn valid_wide_arrays_equal(left: &[u16], right: &[u16]) -> bool {
+    match (wide_array_to_valid_key(left), wide_array_to_valid_key(right)) {
+        (Some(left), Some(right)) => left == right,
+        _ => false,
+    }
 }
 
 fn current_display_mode(adapter_device_name: &[u16]) -> Option<DisplayMode> {
@@ -190,6 +256,7 @@ fn available_display_modes(adapter_device_name: &[u16]) -> Vec<EnumeratedDisplay
 fn enum_display_device(
     parent_device_name: Option<&[u16]>,
     index: u32,
+    flags: u32,
 ) -> Option<DISPLAY_DEVICEW> {
     let parent_device_name = match parent_device_name {
         None => PCWSTR::null(),
@@ -211,8 +278,9 @@ fn enum_display_device(
     // field is initialized to the exact structure size for every call. The input is
     // either NULL (adapter enumeration) or points to a NUL-terminated UTF-16 slice
     // that remains alive for the full call. EnumDisplayDevicesW does not retain
-    // either pointer after it returns. `dwFlags` is zero, so this is read-only.
-    let succeeded = unsafe { EnumDisplayDevicesW(parent_device_name, index, &mut device, 0) };
+    // either pointer after it returns. `flags` is restricted by private callers to
+    // zero or EDD_GET_DEVICE_INTERFACE_NAME; both only retrieve device metadata.
+    let succeeded = unsafe { EnumDisplayDevicesW(parent_device_name, index, &mut device, flags) };
 
     succeeded.as_bool().then_some(device)
 }
@@ -274,6 +342,20 @@ fn wide_array_to_string(value: &[u16]) -> String {
         .unwrap_or(value.len());
 
     String::from_utf16_lossy(&value[..end])
+}
+
+fn wide_array_to_valid_nonempty_key(value: &[u16]) -> Option<Vec<u16>> {
+    let key = wide_array_to_valid_key(value)?;
+    (!key.is_empty()).then_some(key)
+}
+
+fn wide_array_to_valid_key(value: &[u16]) -> Option<Vec<u16>> {
+    let end = value
+        .iter()
+        .position(|code_unit| *code_unit == 0)?;
+
+    String::from_utf16(&value[..end]).ok()?;
+    Some(value[..end].to_vec())
 }
 
 fn nul_terminated_copy(value: &[u16]) -> Vec<u16> {

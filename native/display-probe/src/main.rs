@@ -4,52 +4,64 @@
 mod ccd;
 #[cfg(target_os = "windows")]
 mod display;
+#[cfg(target_os = "windows")]
+mod mapping;
+
+#[cfg(target_os = "windows")]
+const TARGET_NAME_FLAG_FRIENDLY_NAME_FROM_EDID: u32 = 1 << 0;
+#[cfg(target_os = "windows")]
+const TARGET_NAME_FLAG_FRIENDLY_NAME_FORCED: u32 = 1 << 1;
+#[cfg(target_os = "windows")]
+const TARGET_NAME_FLAG_EDID_IDS_VALID: u32 = 1 << 2;
 
 #[cfg(target_os = "windows")]
 fn main() {
-    print_ccd_snapshot();
+    let ccd_snapshot = query_and_print_ccd_snapshot();
     println!();
 
     let adapters = display::enumerate_display_adapters();
 
     if adapters.is_empty() {
         println!("No display adapters found.");
-        return;
+    } else {
+        for (adapter_position, adapter) in adapters.iter().enumerate() {
+            if adapter_position > 0 {
+                println!();
+            }
+
+            println!("Adapter {}", adapter.index);
+            print_device_info("  ", &adapter.info);
+            print_current_mode("  ", adapter.current_mode.as_ref());
+            print_available_modes("  ", &adapter.available_modes);
+
+            for monitor in &adapter.monitors {
+                println!();
+                println!("  Monitor {}", monitor.index);
+                print_device_info("    ", &monitor.info);
+                print_monitor_interface_path("    ", &monitor.interface_path);
+            }
+        }
     }
 
-    for (adapter_position, adapter) in adapters.iter().enumerate() {
-        if adapter_position > 0 {
-            println!();
-        }
-
-        println!("Adapter {}", adapter.index);
-        print_device_info("  ", &adapter.info);
-        print_current_mode("  ", adapter.current_mode.as_ref());
-        print_available_modes("  ", &adapter.available_modes);
-
-        for monitor in &adapter.monitors {
-            println!();
-            println!("  Monitor {}", monitor.index);
-            print_device_info("    ", &monitor.info);
-        }
-    }
+    println!();
+    print_cross_map(ccd_snapshot.as_ref(), &adapters);
 }
 
 #[cfg(target_os = "windows")]
-fn print_ccd_snapshot() {
+fn query_and_print_ccd_snapshot() -> Option<ccd::CcdSnapshot> {
     println!("CCD Active Configuration");
 
     let snapshot = match ccd::query_active_display_config() {
         Ok(snapshot) => snapshot,
         Err(error) => {
             println!("  Error: {error}");
-            return;
+            return None;
         }
     };
 
     println!("  ActivePaths: {}", snapshot.paths.len());
 
-    for path in snapshot.paths {
+    for path in &snapshot.paths {
         println!("  Path {}", path.index);
         println!(
             "    Source: adapter={} id={} modeInfoIndex={}",
@@ -57,9 +69,13 @@ fn print_ccd_snapshot() {
             path.source.id,
             format_mode_index(path.source.mode_info_index)
         );
+        println!(
+            "    SourceGdiDeviceName: {}",
+            format_optional_log_text(path.source.gdi_device_name.as_deref())
+        );
         println!("    SourceStatusFlags: 0x{:08X}", path.source.status_flags);
 
-        if let Some(source_mode) = path.source_mode {
+        if let Some(source_mode) = &path.source_mode {
             println!(
                 "    SourceMode: {}x{} at ({}, {}) pixelFormat={}",
                 source_mode.width_pixels,
@@ -78,6 +94,40 @@ fn print_ccd_snapshot() {
             path.target.id,
             format_mode_index(path.target.mode_info_index)
         );
+        println!(
+            "    TargetFriendlyName: {}",
+            log_text_or_empty_marker(&path.target.friendly_name)
+        );
+        println!(
+            "    TargetDevicePath: {}",
+            format_optional_log_text(path.target.device_path.as_deref())
+        );
+        println!(
+            concat!(
+                "    TargetDeviceNameFlags: 0x{:08X} ",
+                "(friendlyNameFromEdid={} friendlyNameForced={} edidIdsValid={})"
+            ),
+            path.target.device_name_flags,
+            path.target.device_name_flags & TARGET_NAME_FLAG_FRIENDLY_NAME_FROM_EDID != 0,
+            path.target.device_name_flags & TARGET_NAME_FLAG_FRIENDLY_NAME_FORCED != 0,
+            path.target.device_name_flags & TARGET_NAME_FLAG_EDID_IDS_VALID != 0
+        );
+        println!(
+            "    TargetMetadataOutputTechnology: {}",
+            path.target.metadata_output_technology
+        );
+        if path.target.device_name_flags & TARGET_NAME_FLAG_EDID_IDS_VALID != 0 {
+            println!(
+                "    TargetEdidIds: manufacture=0x{:04X} product=0x{:04X}",
+                path.target.edid_manufacture_id, path.target.edid_product_code_id
+            );
+        } else {
+            println!("    TargetEdidIds: unavailable (edidIdsValid=false)");
+        }
+        println!(
+            "    TargetConnectorInstance: {}",
+            path.target.connector_instance
+        );
         println!("    TargetAvailable: {}", path.target.available);
         println!(
             "    TargetPathRefreshRate: {}",
@@ -93,7 +143,7 @@ fn print_ccd_snapshot() {
         println!("    TargetStatusFlags: 0x{:08X}", path.target.status_flags);
         println!("    PathFlags: 0x{:08X}", path.flags);
 
-        if let Some(target_mode) = path.target_mode {
+        if let Some(target_mode) = &path.target_mode {
             println!(
                 "    TargetModeActiveSize: {}x{}",
                 target_mode.active_width_pixels, target_mode.active_height_pixels
@@ -119,6 +169,113 @@ fn print_ccd_snapshot() {
             println!("    TargetMode: unavailable");
         }
     }
+
+    Some(snapshot)
+}
+
+#[cfg(target_os = "windows")]
+fn print_cross_map(snapshot: Option<&ccd::CcdSnapshot>, adapters: &[display::DisplayAdapter]) {
+    println!("GDI <-> CCD Exact Cross-map");
+
+    let Some(snapshot) = snapshot else {
+        println!("  SnapshotStatus: ApiError (initial CCD query failed)");
+        print_empty_mapping_summary(false);
+        return;
+    };
+
+    let verification_snapshot = match ccd::query_active_display_config() {
+        Ok(snapshot) => snapshot,
+        Err(error) => {
+            println!("  SnapshotStatus: ApiError ({error})");
+            println!("  Exact mapping was not finalized.");
+            print_empty_mapping_summary(false);
+            return;
+        }
+    };
+
+    if !ccd::has_same_mapping_evidence(snapshot, &verification_snapshot) {
+        println!("  SnapshotStatus: StaleSnapshot");
+        println!("  Active CCD mapping evidence changed during GDI enumeration.");
+        println!("  Exact mapping was not finalized.");
+        print_empty_mapping_summary(true);
+        return;
+    }
+
+    println!("  SnapshotStatus: SampledStable");
+    let cross_map = mapping::cross_map(snapshot, adapters);
+
+    for path in &cross_map.paths {
+        println!("  Path {}", path.path_index);
+        println!("    SourceMatch: {}", path.source_match);
+        println!(
+            "    SourceAttachedToDesktop: {}",
+            format_optional_bool(path.source_attached_to_desktop)
+        );
+        println!(
+            "    SourceEndpointMultiplicity: {}",
+            path.source_endpoint_multiplicity
+        );
+        println!(
+            "    SourceEndpointIdentityConsistent: {}",
+            path.source_endpoint_identity_consistent
+        );
+        println!("    SourceInUse: {}", path.source_in_use);
+        println!("    TargetMatch: {}", path.target_match);
+        println!(
+            "    ParentAdapterConsistent: {}",
+            format_optional_bool(path.parent_adapter_consistent)
+        );
+        println!(
+            "    TargetAttachedToDesktop: {}",
+            format_optional_bool(path.target_attached_to_desktop)
+        );
+        println!(
+            "    OutputTechnologyConsistent: {}",
+            path.output_technology_consistent
+        );
+        println!(
+            "    TargetEndpointMultiplicity: {}",
+            path.target_endpoint_multiplicity
+        );
+        println!("    TargetAvailableForSession: {}", path.target_available);
+        println!("    TargetInUse: {}", path.target_in_use);
+        println!(
+            "    TargetForcedAvailability: {}",
+            path.target_forced_availability
+        );
+        println!(
+            "    TargetFriendlyNameForced: {}",
+            path.target_friendly_name_forced
+        );
+        println!(
+            "    TargetNameHasUnknownFlags: {}",
+            path.target_name_has_unknown_flags
+        );
+        println!("    PathActive: {}", path.path_active);
+        println!("    Result: {}", path.classification);
+    }
+
+    println!(
+        concat!(
+            "  Summary: ExactPaths={} UnmappedPaths={} AmbiguousPaths={} ",
+            "InconsistentPaths={} Stale=false"
+        ),
+        cross_map.exact_paths,
+        cross_map.unmapped_paths,
+        cross_map.ambiguous_paths,
+        cross_map.inconsistent_paths
+    );
+}
+
+#[cfg(target_os = "windows")]
+fn print_empty_mapping_summary(stale: bool) {
+    println!(
+        concat!(
+            "  Summary: ExactPaths=0 UnmappedPaths=0 AmbiguousPaths=0 ",
+            "InconsistentPaths=0 Stale={}"
+        ),
+        stale
+    );
 }
 
 #[cfg(target_os = "windows")]
@@ -141,6 +298,57 @@ fn format_rational(value: ccd::Rational) -> String {
 
     let decimal = f64::from(value.numerator) / f64::from(value.denominator);
     format!("{}/{} ({decimal:.6} Hz)", value.numerator, value.denominator)
+}
+
+#[cfg(target_os = "windows")]
+fn log_text_or_empty_marker(value: &str) -> String {
+    if value.is_empty() {
+        "(empty)".to_owned()
+    } else {
+        escape_log_text(value)
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn format_optional_log_text(value: Option<&str>) -> String {
+    value
+        .map(escape_log_text)
+        .unwrap_or_else(|| "unavailable".to_owned())
+}
+
+#[cfg(target_os = "windows")]
+fn escape_log_text(value: &str) -> String {
+    let mut escaped = String::with_capacity(value.len());
+
+    for character in value.chars() {
+        let visually_unsafe = character.is_control()
+            || (character.is_whitespace() && character != ' ')
+            || matches!(
+                character,
+                '\u{061C}'
+                    | '\u{200B}'..='\u{200F}'
+                    | '\u{202A}'..='\u{202E}'
+                    | '\u{2060}'..='\u{206F}'
+                    | '\u{FEFF}'
+            );
+
+        if visually_unsafe {
+            escaped.extend(character.escape_unicode());
+        } else {
+            escaped.push(character);
+        }
+    }
+
+    escaped
+}
+
+#[cfg(target_os = "windows")]
+fn format_optional_bool(value: Option<bool>) -> &'static str {
+    match value {
+        Some(true) => "true",
+        Some(false) => "false",
+        None => "not evaluated",
+    }
 }
 
 #[cfg(target_os = "windows")]
@@ -196,15 +404,33 @@ fn print_available_modes(indent: &str, modes: &[display::EnumeratedDisplayMode])
 
 #[cfg(target_os = "windows")]
 fn print_device_info(indent: &str, info: &display::DisplayDeviceInfo) {
-    println!("{indent}DeviceName: {}", info.device_name);
-    println!("{indent}DeviceString: {}", info.device_string);
-    println!("{indent}DeviceID: {}", info.device_id);
-    println!("{indent}DeviceKey: {}", info.device_key);
+    println!("{indent}DeviceName: {}", escape_log_text(&info.device_name));
+    println!(
+        "{indent}DeviceString: {}",
+        escape_log_text(&info.device_string)
+    );
+    println!("{indent}DeviceID: {}", escape_log_text(&info.device_id));
+    println!("{indent}DeviceKey: {}", escape_log_text(&info.device_key));
     println!("{indent}Primary: {}", info.is_primary);
     println!(
         "{indent}AttachedToDesktop: {}",
         info.is_attached_to_desktop
     );
+}
+
+#[cfg(target_os = "windows")]
+fn print_monitor_interface_path(indent: &str, path: &display::MonitorInterfacePath) {
+    match path {
+        display::MonitorInterfacePath::Available { value, .. } => {
+            println!("{indent}DeviceInterfacePath: {}", escape_log_text(value));
+        }
+        display::MonitorInterfacePath::Unavailable => {
+            println!("{indent}DeviceInterfacePath: unavailable");
+        }
+        display::MonitorInterfacePath::InconsistentEnumeration => {
+            println!("{indent}DeviceInterfacePath: inconsistent enumeration");
+        }
+    }
 }
 
 #[cfg(not(target_os = "windows"))]

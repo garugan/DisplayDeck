@@ -1,10 +1,13 @@
-use std::{fmt, ptr};
+use std::{fmt, mem::size_of, ptr};
 
 use windows::Win32::{
     Devices::Display::{
-        GetDisplayConfigBufferSizes, QueryDisplayConfig, DISPLAYCONFIG_MODE_INFO,
+        DisplayConfigGetDeviceInfo, GetDisplayConfigBufferSizes, QueryDisplayConfig,
+        DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME, DISPLAYCONFIG_DEVICE_INFO_GET_TARGET_NAME,
+        DISPLAYCONFIG_DEVICE_INFO_HEADER, DISPLAYCONFIG_MODE_INFO,
         DISPLAYCONFIG_MODE_INFO_TYPE_SOURCE, DISPLAYCONFIG_MODE_INFO_TYPE_TARGET,
-        DISPLAYCONFIG_PATH_INFO, DISPLAYCONFIG_RATIONAL, QDC_ONLY_ACTIVE_PATHS,
+        DISPLAYCONFIG_PATH_INFO, DISPLAYCONFIG_RATIONAL, DISPLAYCONFIG_SOURCE_DEVICE_NAME,
+        DISPLAYCONFIG_TARGET_DEVICE_NAME, QDC_ONLY_ACTIVE_PATHS,
     },
     Foundation::{ERROR_INSUFFICIENT_BUFFER, ERROR_SUCCESS, LUID},
     Graphics::Gdi::DISPLAYCONFIG_PATH_MODE_IDX_INVALID,
@@ -13,6 +16,7 @@ use windows::Win32::{
 const MAX_QUERY_ATTEMPTS: usize = 3;
 const MAX_PATH_COUNT: u32 = 256;
 const MAX_MODE_COUNT: u32 = 1_024;
+const TARGET_NAME_FLAG_EDID_IDS_VALID: u32 = 1 << 2;
 
 #[derive(Debug)]
 pub struct CcdSnapshot {
@@ -33,6 +37,8 @@ pub struct CcdPath {
 pub struct CcdSource {
     pub adapter_luid: AdapterLuid,
     pub id: u32,
+    pub gdi_device_name: Option<String>,
+    pub gdi_device_name_key: Option<Vec<u16>>,
     pub mode_info_index: Option<u32>,
     pub status_flags: u32,
 }
@@ -41,6 +47,14 @@ pub struct CcdSource {
 pub struct CcdTarget {
     pub adapter_luid: AdapterLuid,
     pub id: u32,
+    pub friendly_name: String,
+    pub device_path: Option<String>,
+    pub device_path_key: Option<Vec<u16>>,
+    pub device_name_flags: u32,
+    pub metadata_output_technology: i32,
+    pub edid_manufacture_id: u16,
+    pub edid_product_code_id: u16,
+    pub connector_instance: u32,
     pub mode_info_index: Option<u32>,
     pub output_technology: i32,
     pub rotation: i32,
@@ -72,7 +86,7 @@ pub struct CcdTargetMode {
     pub scan_line_ordering: i32,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct AdapterLuid {
     pub low_part: u32,
     pub high_part: i32,
@@ -118,6 +132,10 @@ pub enum CcdQueryError {
         path_index: usize,
         role: &'static str,
         mode_index: u32,
+    },
+    DeviceInfoHeaderMismatch {
+        path_index: usize,
+        role: &'static str,
     },
 }
 
@@ -167,6 +185,10 @@ impl fmt::Display for CcdQueryError {
                 formatter,
                 "path {path_index} {role} mode index {mode_index} has a different adapter or ID"
             ),
+            Self::DeviceInfoHeaderMismatch { path_index, role } => write!(
+                formatter,
+                "path {path_index} {role} device-info response header does not match the request"
+            ),
         }
     }
 }
@@ -174,14 +196,70 @@ impl fmt::Display for CcdQueryError {
 pub fn query_active_display_config() -> Result<CcdSnapshot, CcdQueryError> {
     let (paths, modes) = query_raw_active_config()?;
     let mut converted_paths = Vec::with_capacity(paths.len());
+    let mut source_name_cache = Vec::new();
+    let mut target_name_cache = Vec::new();
 
     for (path_index, path) in paths.iter().enumerate() {
-        converted_paths.push(convert_path(path_index, path, &modes)?);
+        converted_paths.push(convert_path(
+            path_index,
+            path,
+            &modes,
+            &mut source_name_cache,
+            &mut target_name_cache,
+        )?);
     }
 
     Ok(CcdSnapshot {
         paths: converted_paths,
     })
+}
+
+pub fn has_same_mapping_evidence(left: &CcdSnapshot, right: &CcdSnapshot) -> bool {
+    if left.paths.len() != right.paths.len() {
+        return false;
+    }
+
+    let mut matched = vec![false; right.paths.len()];
+    for left_path in &left.paths {
+        let Some((right_index, _)) = right
+            .paths
+            .iter()
+            .enumerate()
+            .find(|(right_index, right_path)| {
+                !matched[*right_index]
+                    && path_mapping_evidence_equal(left_path, right_path)
+            })
+        else {
+            return false;
+        };
+        matched[right_index] = true;
+    }
+
+    true
+}
+
+fn path_mapping_evidence_equal(left: &CcdPath, right: &CcdPath) -> bool {
+    left.source.adapter_luid == right.source.adapter_luid
+        && left.source.id == right.source.id
+        && left.source.gdi_device_name_key == right.source.gdi_device_name_key
+        && left.target.adapter_luid == right.target.adapter_luid
+        && left.target.id == right.target.id
+        && left.target.device_path_key == right.target.device_path_key
+        && left.target.available == right.target.available
+        && left.target.output_technology == right.target.output_technology
+        && left.target.metadata_output_technology == right.target.metadata_output_technology
+        && left.target.device_name_flags == right.target.device_name_flags
+        && left.target.connector_instance == right.target.connector_instance
+        && target_edid_evidence_equal(&left.target, &right.target)
+        && left.source.status_flags == right.source.status_flags
+        && left.target.status_flags == right.target.status_flags
+        && left.flags == right.flags
+}
+
+fn target_edid_evidence_equal(left: &CcdTarget, right: &CcdTarget) -> bool {
+    left.device_name_flags & TARGET_NAME_FLAG_EDID_IDS_VALID == 0
+        || (left.edid_manufacture_id == right.edid_manufacture_id
+            && left.edid_product_code_id == right.edid_product_code_id)
 }
 
 fn query_raw_active_config(
@@ -292,6 +370,8 @@ fn convert_path(
     path_index: usize,
     path: &DISPLAYCONFIG_PATH_INFO,
     modes: &[DISPLAYCONFIG_MODE_INFO],
+    source_name_cache: &mut Vec<SourceNameCacheEntry>,
+    target_name_cache: &mut Vec<TargetNameCacheEntry>,
 ) -> Result<CcdPath, CcdQueryError> {
     // SAFETY: The query deliberately omits QDC_VIRTUAL_MODE_AWARE, so the
     // documented active union member for each path endpoint is `modeInfoIdx`.
@@ -313,18 +393,42 @@ fn convert_path(
         path.targetInfo.id,
         modes,
     )?;
+    let source_device_name = cached_source_device_name(
+        source_name_cache,
+        path_index,
+        path.sourceInfo.adapterId,
+        path.sourceInfo.id,
+    )?;
+    let target_device_name = cached_target_device_name(
+        target_name_cache,
+        path_index,
+        path.targetInfo.adapterId,
+        path.targetInfo.id,
+    )?;
 
     Ok(CcdPath {
         index: path_index,
         source: CcdSource {
             adapter_luid: AdapterLuid::from(path.sourceInfo.adapterId),
             id: path.sourceInfo.id,
+            gdi_device_name: source_device_name
+                .as_ref()
+                .map(|value| value.display.clone()),
+            gdi_device_name_key: source_device_name.map(|value| value.key),
             mode_info_index: mode_index(source_mode_index),
             status_flags: path.sourceInfo.statusFlags,
         },
         target: CcdTarget {
             adapter_luid: AdapterLuid::from(path.targetInfo.adapterId),
             id: path.targetInfo.id,
+            friendly_name: target_device_name.friendly_name,
+            device_path: target_device_name.device_path,
+            device_path_key: target_device_name.device_path_key,
+            device_name_flags: target_device_name.flags,
+            metadata_output_technology: target_device_name.output_technology,
+            edid_manufacture_id: target_device_name.edid_manufacture_id,
+            edid_product_code_id: target_device_name.edid_product_code_id,
+            connector_instance: target_device_name.connector_instance,
             mode_info_index: mode_index(target_mode_index),
             output_technology: path.targetInfo.outputTechnology.0,
             rotation: path.targetInfo.rotation.0,
@@ -338,6 +442,207 @@ fn convert_path(
         target_mode,
         flags: path.flags,
     })
+}
+
+#[derive(Clone)]
+struct QueriedTargetDeviceName {
+    friendly_name: String,
+    device_path: Option<String>,
+    device_path_key: Option<Vec<u16>>,
+    flags: u32,
+    output_technology: i32,
+    edid_manufacture_id: u16,
+    edid_product_code_id: u16,
+    connector_instance: u32,
+}
+
+#[derive(Clone)]
+struct ValidatedWideString {
+    display: String,
+    key: Vec<u16>,
+}
+
+struct SourceNameCacheEntry {
+    adapter_id: LUID,
+    source_id: u32,
+    value: Option<ValidatedWideString>,
+}
+
+struct TargetNameCacheEntry {
+    adapter_id: LUID,
+    target_id: u32,
+    value: QueriedTargetDeviceName,
+}
+
+fn cached_source_device_name(
+    cache: &mut Vec<SourceNameCacheEntry>,
+    path_index: usize,
+    adapter_id: LUID,
+    source_id: u32,
+) -> Result<Option<ValidatedWideString>, CcdQueryError> {
+    if let Some(entry) = cache
+        .iter()
+        .find(|entry| entry.adapter_id == adapter_id && entry.source_id == source_id)
+    {
+        return Ok(entry.value.clone());
+    }
+
+    let value = query_source_device_name(path_index, adapter_id, source_id)?;
+    cache.push(SourceNameCacheEntry {
+        adapter_id,
+        source_id,
+        value: value.clone(),
+    });
+    Ok(value)
+}
+
+fn cached_target_device_name(
+    cache: &mut Vec<TargetNameCacheEntry>,
+    path_index: usize,
+    adapter_id: LUID,
+    target_id: u32,
+) -> Result<QueriedTargetDeviceName, CcdQueryError> {
+    if let Some(entry) = cache
+        .iter()
+        .find(|entry| entry.adapter_id == adapter_id && entry.target_id == target_id)
+    {
+        return Ok(entry.value.clone());
+    }
+
+    let value = query_target_device_name(path_index, adapter_id, target_id)?;
+    cache.push(TargetNameCacheEntry {
+        adapter_id,
+        target_id,
+        value: value.clone(),
+    });
+    Ok(value)
+}
+
+fn query_source_device_name(
+    path_index: usize,
+    adapter_id: LUID,
+    source_id: u32,
+) -> Result<Option<ValidatedWideString>, CcdQueryError> {
+    let mut request = DISPLAYCONFIG_SOURCE_DEVICE_NAME::default();
+    request.header = DISPLAYCONFIG_DEVICE_INFO_HEADER {
+        r#type: DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME,
+        size: u32::try_from(size_of::<DISPLAYCONFIG_SOURCE_DEVICE_NAME>())
+            .expect("source device-name packet size must fit in u32"),
+        adapterId: adapter_id,
+        id: source_id,
+    };
+
+    // SAFETY: DISPLAYCONFIG_SOURCE_DEVICE_NAME is repr(C) with `header` as its
+    // first field. The raw pointer therefore addresses the full writable packet,
+    // whose exact size and GET_SOURCE_NAME discriminator are initialized. The
+    // packet remains alive, is uniquely writable, and is not accessed through an
+    // alias during the call. The function retains no pointer. This request only
+    // retrieves metadata.
+    let result = unsafe {
+        DisplayConfigGetDeviceInfo(
+            ptr::addr_of_mut!(request).cast::<DISPLAYCONFIG_DEVICE_INFO_HEADER>(),
+        )
+    };
+    if result != ERROR_SUCCESS.0 as i32 {
+        return Err(CcdQueryError::Win32 {
+            operation: "DisplayConfigGetDeviceInfo(GET_SOURCE_NAME)",
+            code: result as u32,
+        });
+    }
+    validate_device_info_header(
+        path_index,
+        "source",
+        &request.header,
+        DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME,
+        u32::try_from(size_of::<DISPLAYCONFIG_SOURCE_DEVICE_NAME>())
+            .expect("source device-name packet size must fit in u32"),
+        &adapter_id,
+        source_id,
+    )?;
+
+    Ok(wide_array_to_valid_nonempty_string(
+        &request.viewGdiDeviceName,
+    ))
+}
+
+fn query_target_device_name(
+    path_index: usize,
+    adapter_id: LUID,
+    target_id: u32,
+) -> Result<QueriedTargetDeviceName, CcdQueryError> {
+    let mut request = DISPLAYCONFIG_TARGET_DEVICE_NAME::default();
+    request.header = DISPLAYCONFIG_DEVICE_INFO_HEADER {
+        r#type: DISPLAYCONFIG_DEVICE_INFO_GET_TARGET_NAME,
+        size: u32::try_from(size_of::<DISPLAYCONFIG_TARGET_DEVICE_NAME>())
+            .expect("target device-name packet size must fit in u32"),
+        adapterId: adapter_id,
+        id: target_id,
+    };
+
+    // SAFETY: DISPLAYCONFIG_TARGET_DEVICE_NAME is repr(C) with `header` first.
+    // The pointer addresses the complete writable packet with its exact size and
+    // GET_TARGET_NAME discriminator initialized. The packet outlives the call,
+    // is uniquely writable, and is not accessed through an alias during the call.
+    // The function retains no pointer. This is a read-only metadata request.
+    let result = unsafe {
+        DisplayConfigGetDeviceInfo(
+            ptr::addr_of_mut!(request).cast::<DISPLAYCONFIG_DEVICE_INFO_HEADER>(),
+        )
+    };
+    if result != ERROR_SUCCESS.0 as i32 {
+        return Err(CcdQueryError::Win32 {
+            operation: "DisplayConfigGetDeviceInfo(GET_TARGET_NAME)",
+            code: result as u32,
+        });
+    }
+    validate_device_info_header(
+        path_index,
+        "target",
+        &request.header,
+        DISPLAYCONFIG_DEVICE_INFO_GET_TARGET_NAME,
+        u32::try_from(size_of::<DISPLAYCONFIG_TARGET_DEVICE_NAME>())
+            .expect("target device-name packet size must fit in u32"),
+        &adapter_id,
+        target_id,
+    )?;
+
+    // SAFETY: The complete target-name packet was successfully initialized by
+    // DisplayConfigGetDeviceInfo, so reading the raw `value` view of its flags
+    // union is valid and avoids interpreting undocumented or unknown bits.
+    let flags = unsafe { request.flags.Anonymous.value };
+
+    let device_path = wide_array_to_valid_nonempty_string(&request.monitorDevicePath);
+
+    Ok(QueriedTargetDeviceName {
+        friendly_name: wide_array_to_string(&request.monitorFriendlyDeviceName),
+        device_path: device_path.as_ref().map(|value| value.display.clone()),
+        device_path_key: device_path.map(|value| value.key),
+        flags,
+        output_technology: request.outputTechnology.0,
+        edid_manufacture_id: request.edidManufactureId,
+        edid_product_code_id: request.edidProductCodeId,
+        connector_instance: request.connectorInstance,
+    })
+}
+
+fn validate_device_info_header(
+    path_index: usize,
+    role: &'static str,
+    header: &DISPLAYCONFIG_DEVICE_INFO_HEADER,
+    expected_type: windows::Win32::Devices::Display::DISPLAYCONFIG_DEVICE_INFO_TYPE,
+    expected_size: u32,
+    expected_adapter: &LUID,
+    expected_id: u32,
+) -> Result<(), CcdQueryError> {
+    if header.r#type != expected_type
+        || header.size != expected_size
+        || header.adapterId != *expected_adapter
+        || header.id != expected_id
+    {
+        return Err(CcdQueryError::DeviceInfoHeaderMismatch { path_index, role });
+    }
+
+    Ok(())
 }
 
 fn resolve_source_mode(
@@ -463,6 +768,31 @@ fn validate_mode_identity(
 
 fn mode_index(raw_index: u32) -> Option<u32> {
     (raw_index != DISPLAYCONFIG_PATH_MODE_IDX_INVALID).then_some(raw_index)
+}
+
+fn wide_array_to_string(value: &[u16]) -> String {
+    let end = value
+        .iter()
+        .position(|code_unit| *code_unit == 0)
+        .unwrap_or(value.len());
+
+    String::from_utf16_lossy(&value[..end])
+}
+
+fn wide_array_to_valid_nonempty_string(value: &[u16]) -> Option<ValidatedWideString> {
+    let end = value
+        .iter()
+        .position(|code_unit| *code_unit == 0)?;
+
+    if end == 0 {
+        return None;
+    }
+
+    let display = String::from_utf16(&value[..end]).ok()?;
+    Some(ValidatedWideString {
+        display,
+        key: value[..end].to_vec(),
+    })
 }
 
 impl From<LUID> for AdapterLuid {

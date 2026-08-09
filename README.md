@@ -159,7 +159,7 @@ APIが1件もmodeを返さないadapterは`AvailableModes: 0`と表示します�
 
 利用可能な解像度・整数refresh rate一覧はWindows実機で確認済みです。重複recordは調査用に保持し、driverが列挙するネイティブ解像度を超えるmodeも削除していません。
 
-## Step 4: CCD active configurationの確認
+## Step 4: CCD active configurationの確認（Windows実機検証完了）
 
 Step 4では、CCD APIを使って現在のactive display pathとmode情報を取得します。
 
@@ -193,7 +193,7 @@ CCD Active Configuration
 
 実際のadapter LUID、ID、mode index、rationalの分子・分母は環境によって異なります。decimal値だけでなく、分子と分母を含む標準出力全体を保存してください。
 
-この段階では`DisplayConfigGetDeviceInfo`を呼ばないため、CCD source/targetのfriendly nameやGDI `DeviceName`とのcross-mapはまだ作りません。また、Step 3のmode候補とCCD active pathを適用可能候補として関連付ける処理も未実装です。
+Step 4の完了時点では`DisplayConfigGetDeviceInfo`を呼ばず、CCD source/targetのfriendly nameやGDI `DeviceName`とのcross-mapは対象外でした。これらは次のStep 5で追加します。Step 3のmode候補とCCD active pathを適用可能候補として関連付ける処理は、引き続き未実装です。
 
 ### Step 4の確認項目
 
@@ -208,7 +208,99 @@ CCD Active Configuration
 
 ### Step 4の完了条件
 
-active path、source/target mode、rational refreshをWindows実機で確認できたら、この最小`QueryDisplayConfig` Step 4は完了です。friendly name取得とGDI↔CCD cross-mapは別のread-only拡張として扱います。
+active path、source/target mode、rational refreshはWindows実機で確認済みです。friendly name取得とGDI↔CCD cross-mapは、次のread-only Step 5として扱います。
+
+## Step 5: GDI ↔ CCD exact cross-mapの確認（実装済み・Windows実機検証待ち）
+
+Step 5では、GDIとCCDが返すidentityを使って、各active CCD pathをGDI adapter/monitorへ対応付けます。friendly name、解像度、位置、refresh rateによる推測は行いません。
+
+### 使用するread-only API
+
+- `DisplayConfigGetDeviceInfo(DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME)`
+  - CCDの`(adapterId, sourceId)`から`viewGdiDeviceName`を取得
+- `DisplayConfigGetDeviceInfo(DISPLAYCONFIG_DEVICE_INFO_GET_TARGET_NAME)`
+  - CCDの`(adapterId, targetId)`からfriendly name、monitor device path、output technology、connector instance、flags、EDID IDsを取得
+- `EnumDisplayDevicesW(..., EDD_GET_DEVICE_INTERFACE_NAME)`
+  - 同じadapter `DeviceName`とmonitor indexを使い、GDI monitorのdevice interface pathを別recordとして取得
+
+通常のmonitor列挙で得た`DeviceID`は保持します。`EDD_GET_DEVICE_INTERFACE_NAME`で得た`DeviceID`は`DeviceInterfacePath`として別に表示し、通常recordを上書きしません。
+
+Cargo dependencyは引き続き`windows = "=0.62.2"`です。featureは次の2つだけで、Step 5による追加はありません。
+
+- `Win32_Devices_Display`
+- `Win32_Graphics_Gdi`
+
+`Win32_Foundation`はこのWin32 feature階層からtransitiveに有効になるため、重複して明示していません。`EDD_GET_DEVICE_INTERFACE_NAME`は`windows 0.62.2`で`Win32_UI_WindowsAndMessaging`配下に公開されていますが、UI API自体は使わないため、確認済みの定数値`0x00000001`をCLI内に限定して定義しています。
+
+### exact mapping規則
+
+source側は、CCD `viewGdiDeviceName`と全GDI adapterの`DISPLAY_DEVICEW.DeviceName`を照合します。target側は、CCD `monitorDevicePath`と全GDI monitorの`DeviceInterfacePath`を照合します。
+
+両target pathはSetupAPIでmonitorへ到達するためのpathとして文書化されていますが、Microsoftの説明だけから、すべてのdriver/OSで両文字列が常に同一とまでは断定しません。ここでの`Exact`は、同じrunで観測した2つの文字列が完全一致したというStep 5の実機evidenceです。
+
+- 最初のNULより前のraw UTF-16 code unit列を完全一致で比較
+- `String::from_utf16_lossy`をidentity比較に使用しない
+- 大文字・小文字変換、trim、Unicode normalization、slashやprefixの置換、device pathのparseを行わない
+- 0件一致は`Unmapped`、複数一致は`Ambiguous`
+- sourceとtargetがそれぞれ一意に一致した後、同じ親adapterか、source adapterとtarget monitorがdesktop接続中か、2つのCCD recordのoutput technologyが一致するかを別に検査
+- clone topologyで複数pathが同じsource endpointを共有することは許容するが、共有されたsource nameは全recordで一致する必要がある
+- 同じtarget endpointが複数pathに現れた場合は統合せず`Inconsistent`
+- path/source/targetがactive/in-useでない場合、targetが現在のsessionでavailableでない場合、targetにforced availability flagまたは`friendlyNameForced`がある場合、あるいは未知のtarget-name flagがある場合は`Inconsistent`
+
+friendly nameは人間向けlabelとしてだけ表示します。空のfriendly nameはmonitor device pathのmapping失敗とはみなしません。device interface symbolic linkはopaqueかつsnapshot/session scopedとして扱い、永続IDとして保存しません。device由来の表示文字列に含まれる改行、terminal control、方向制御文字などは、1行の診断出力を偽装できないようescapeします。
+
+GDI列挙の前後をCCD queryで挟み、2回のactive endpoint identity、path/source/target status、target availability、output technologyの集合が一致した場合だけmappingを確定します。一致した場合の表示は、atomicな安定性を意味する`Stable`ではなく`SampledStable`です。2回の観測間で変化して同じ値へ戻るABAや、sampling後の変化までは証明できません。観測値が異なる場合は`StaleSnapshot`と表示し、そのrunでは`Exact`を確定しません。
+
+### 実行手順
+
+リポジトリのルートディレクトリで、これまでと同じコマンドを実行します。
+
+```text
+cargo run --manifest-path native/display-probe/Cargo.toml
+```
+
+GDI monitor情報には`DeviceInterfacePath`が追加され、最後に次のようなcross-mapが表示されます。
+
+```text
+GDI <-> CCD Exact Cross-map
+  SnapshotStatus: SampledStable
+  Path 0
+    SourceMatch: Exact (Adapter 0)
+    SourceAttachedToDesktop: true
+    SourceEndpointMultiplicity: 1
+    SourceEndpointIdentityConsistent: true
+    SourceInUse: true
+    TargetMatch: Exact (Adapter 0 / Monitor 0)
+    ParentAdapterConsistent: true
+    TargetAttachedToDesktop: true
+    OutputTechnologyConsistent: true
+    TargetEndpointMultiplicity: 1
+    TargetAvailableForSession: true
+    TargetInUse: true
+    TargetForcedAvailability: false
+    TargetFriendlyNameForced: false
+    TargetNameHasUnknownFlags: false
+    PathActive: true
+    Result: Exact
+  Summary: ExactPaths=3 UnmappedPaths=0 AmbiguousPaths=0 InconsistentPaths=0 Stale=false
+```
+
+### Step 5の確認項目
+
+1. CLIがWindowsで正常にbuild・実行できる。
+2. 各active pathの`SourceGdiDeviceName`が表示され、対応するGDI adapterの`DeviceName`へ一意に`Exact`となる。
+3. 各GDI monitorの`DeviceInterfacePath`と各CCD targetの`TargetDevicePath`が表示され、active targetが一意に`Exact`となる。
+4. `SourceAttachedToDesktop`、`SourceEndpointIdentityConsistent`、`SourceInUse`、`ParentAdapterConsistent`、`TargetAttachedToDesktop`、`OutputTechnologyConsistent`、`TargetAvailableForSession`、`TargetInUse`、`PathActive`が`true`となる。
+5. `TargetForcedAvailability`、`TargetFriendlyNameForced`、`TargetNameHasUnknownFlags`が`false`となる。
+6. 通常列挙のmonitor `DeviceID`がStep 1までと同じ意味の値として残り、`DeviceInterfacePath`で上書きされていない。
+7. desktop未接続のadapter/monitorがactive CCD pathへ誤って対応付けられない。
+8. 実ディスプレイが3台なら、安定したtopologyで例のように`ExactPaths=3`となり、`UnmappedPaths=0`、`AmbiguousPaths=0`、`InconsistentPaths=0`となる。
+9. 実行中にdisplayを抜き差しして前後の観測値が異なった場合は、誤った`Exact`ではなく`StaleSnapshot`またはAPI errorになる。短時間で元の値へ戻るABAはこのCLIだけでは検出できないため、hotplug中のrunを完了証拠にしない。
+10. 実行前後で解像度、refresh rate、monitor配置などが変化しない。
+
+### Step 5の完了条件
+
+安定したWindows実機環境でactive pathがすべて一意に`Exact`となり、GDIとCCDのsource/target identityが期待する物理displayへ対応することを標準出力と目視で確認できたらStep 5完了です。完全一致または整合性検査が成立しない環境では推測で補完せず、そのsupport cellを`Unmapped`、`Ambiguous`、または`Inconsistent`として記録します。
 
 ### Windows以外で実行した場合
 
