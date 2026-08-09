@@ -210,7 +210,7 @@ Step 4の完了時点では`DisplayConfigGetDeviceInfo`を呼ばず、CCD source
 
 active path、source/target mode、rational refreshはWindows実機で確認済みです。friendly name取得とGDI↔CCD cross-mapは、次のread-only Step 5として扱います。
 
-## Step 5: GDI ↔ CCD exact cross-mapの確認（実装済み・Windows実機検証待ち）
+## Step 5: GDI ↔ CCD exact cross-mapの確認（Windows実機検証完了）
 
 Step 5では、GDIとCCDが返すidentityを使って、各active CCD pathをGDI adapter/monitorへ対応付けます。friendly name、解像度、位置、refresh rateによる推測は行いません。
 
@@ -300,9 +300,154 @@ GDI <-> CCD Exact Cross-map
 
 ### Step 5の完了条件
 
-安定したWindows実機環境でactive pathがすべて一意に`Exact`となり、GDIとCCDのsource/target identityが期待する物理displayへ対応することを標準出力と目視で確認できたらStep 5完了です。完全一致または整合性検査が成立しない環境では推測で補完せず、そのsupport cellを`Unmapped`、`Ambiguous`、または`Inconsistent`として記録します。
+安定したWindows実機環境で、3本のactive pathがすべて一意に`Exact`となることを確認済みです。実機結果は`ExactPaths=3`、`UnmappedPaths=0`、`AmbiguousPaths=0`、`InconsistentPaths=0`、`Stale=false`で、desktop未接続の`DISPLAY4`はcross-mapに含まれませんでした。
 
-### Windows以外で実行した場合
+通常・安定topologyでのStep 5は完了です。hotplug中の`StaleSnapshot`は追加検証項目として未実施ですが、通常状態の完了条件には含めません。完全一致または整合性検査が成立しない別環境では推測で補完せず、そのsupport cellを`Unmapped`、`Ambiguous`、または`Inconsistent`として記録します。
+
+## Step 6: CurrentObservation統合（実装済み・Windows実機検証待ち）
+
+Step 5で一意にcross-mapできたactive pathごとに、GDIの現在値とCCDのsource/target値を1つのread-only `CurrentObservation`へ統合します。新しいWindows API、crate dependency、`windows` feature、`unsafe`は追加していません。解像度・refresh rate・配置を変更するAPIも使用しません。
+
+Step 6の`Exact`は、今回比較する現在のdesktop解像度とraw refresh rationalの数学的関係が完全一致したことだけを表します。完全な`DEVMODE` tuple、bit depth、HDR/color、preferred mode、物理presentation rate、candidateの適用可能性を証明するものではなく、`canApply`判定にも使用しません。
+
+### 解像度とrotationの規則
+
+GDI側は、Step 2で`DM_PELSWIDTH`と`DM_PELSHEIGHT`が有効な場合だけ保持した`dmPelsWidth` / `dmPelsHeight`を使います。CCD側は`DISPLAYCONFIG_SOURCE_MODE`のwidth / heightを使い、target pathの`DISPLAYCONFIG_ROTATION`を次のように適用してからGDIのdesktop surfaceと比較します。
+
+| CCD rotation | raw値 | source寸法への処理 |
+| --- | ---: | --- |
+| `Identity` | 1 | width / heightを維持 |
+| `Rotate90` | 2 | width / heightを交換 |
+| `Rotate180` | 3 | width / heightを維持 |
+| `Rotate270` | 4 | width / heightを交換 |
+
+未知のrotation、0を含む寸法、GDI current modeまたはCCD source modeの欠落は`Unavailable`です。known rotation適用後のCCD source寸法とGDI寸法が違う場合だけ`Mismatch`とし、幅と高さを推測で補正しません。この照合規則は、[`DEVMODEW`](https://learn.microsoft.com/en-us/windows/win32/api/wingdi/ns-wingdi-devmodew)、[`DISPLAYCONFIG_SOURCE_MODE`](https://learn.microsoft.com/en-us/windows/win32/api/wingdi/ns-wingdi-displayconfig_source_mode)、[`DISPLAYCONFIG_ROTATION`](https://learn.microsoft.com/en-us/windows/win32/api/wingdi/ne-wingdi-displayconfig_rotation)のdocumented field semanticsから導くStep 6の判定規則です。
+
+CCD `TargetModeActiveSize`は物理signalのactive領域であり、scaling時にはsource surfaceと異なり得ます。そのためGDI desktop解像度の一致根拠にはせず、raw CCD sourceとの関係を`Exact`、`Distinct`、`Unavailable`として別に表示します。
+
+### integer / rational refreshの規則
+
+次の3関係を独立に比較します。
+
+- GDI integer Hz ↔ CCD path `refreshRate`
+- GDI integer Hz ↔ CCD target mode `vSyncFreq`
+- CCD path `refreshRate` ↔ CCD target mode `vSyncFreq`
+
+比較はdecimal表示や許容誤差を使わず、正の分子・分母を`u128`へ拡張してcross multiplicationします。したがって`60`と`60/1`、`60`と`120/2`は`Exact`ですが、`60`と`60000/1001`は`Distinct`です。GDIのdriver default値`0` / `1`、未報告field、CCDの`0/0`、分母0、0Hzは`Unavailable`です。
+
+CCD path refreshとtarget VSyncは同じ値へ丸めません。[`DISPLAYCONFIG_PATH_INFO`](https://learn.microsoft.com/en-us/windows/win32/api/wingdi/ns-wingdi-displayconfig_path_info)で説明されるWindows 11のDynamic Refresh Rateではvirtual / physical refreshが意図的に異なり得るため、有効だが異なる値は破損を意味する`Mismatch`ではなく`Distinct`として保持します。各fieldの意味は[`DISPLAYCONFIG_PATH_TARGET_INFO`](https://learn.microsoft.com/en-us/windows/win32/api/wingdi/ns-wingdi-displayconfig_path_target_info)と[`DISPLAYCONFIG_VIDEO_SIGNAL_INFO`](https://learn.microsoft.com/en-us/windows/win32/api/wingdi/ns-wingdi-displayconfig_video_signal_info)に従います。
+
+### snapshotと分類規則
+
+Step 5のmapping evidenceに加え、GDI列挙の前後で取得した2つのCCD snapshotについて、CLIが保持するsource modeの全fieldとtarget modeの全field（pixel rate、H/V sync、active/total size、scanline ordering）、rotation、scaling、path rational refreshをorder-independentに比較します。mode-info indexやpath配列順だけの変化はidentity変化とみなしません。Step 6で保持・判定に使わない`DISPLAYCONFIG_VIDEO_SIGNAL_INFO`のanonymous unionは、ここでいうtarget mode fieldには含みません。特にMiracastの`vSyncFreqDivider`は解釈していないため、Step 6の`Exact`をMiracast supportまたはphysical presentation rateの保証として扱いません。
+
+- mapping evidenceが変化した場合、Step 5とStep 6を`StaleSnapshot`にする
+- mappingは同じでもcurrent mode evidenceが変化した場合、Step 6だけを`StaleSnapshot`にする
+- API error、判定に必要な値の欠落、未知のrotation、非`Exact` mappingは`Unavailable`にする。個別fieldに`Mismatch`があっても必要値が欠ける場合、全体の`Result`は`Unavailable`を優先する
+- clone topologyは1つのsourceを複数target pathが共有し、targetごとにrotationが異なり得るため、Step 6では`CloneSourceNotQualified`として`Unavailable`にする
+- 必要値がすべて揃い、knownなrotation適用後のdesktop解像度が違う場合は`Mismatch`にする
+- 解像度は一致し、有効なrefreshまたはsource/target signal寸法が数学的に異なる場合は`Distinct`にする
+- 必要な全関係が完全一致した場合だけ`Exact`にする
+
+`SampledStable`はatomic snapshotを意味しません。2回の観測間で変化して元の値へ戻るABAと、2回目の観測後の変化は検出できないため、hotplug中のrunを完了証拠には使用しません。
+
+### 実行手順と出力例
+
+Windows上のリポジトリルートで実行します。
+
+```text
+cargo test --manifest-path native/display-probe/Cargo.toml
+cargo run --manifest-path native/display-probe/Cargo.toml
+```
+
+縦置きdisplayでは、次のようにCCD sourceへrotationを適用した寸法とGDI desktop寸法が一致することを確認します。
+
+```text
+GDI / CCD Current Observations
+  SnapshotStatus: SampledStable
+  Scope: current resolution/refresh relations only
+  Path 1
+    Mapping: Adapter 1 / Monitor 0
+    DeviceName: \\.\DISPLAY2
+    FriendlyName: TW215FHDNS
+    Rotation: Rotate270 (4)
+    ScalingRaw: 1
+    GdiDesktopResolution: 1080x1920
+    CcdSourceResolution: 1920x1080
+    RotationAppliedSourceResolution: 1080x1920
+    DesktopResolutionRelation: Exact
+    CcdTargetActiveResolution: 1920x1080
+    CcdSourceVsTargetActive: Exact
+    GdiRefresh: 60 Hz (integer)
+    CcdPathRefresh: 60/1 (60.000000 Hz)
+    CcdTargetVSync: 60/1 (60.000000 Hz)
+    GdiVsCcdPathRefresh: Exact
+    GdiVsCcdTargetVSync: Exact
+    CcdPathVsTargetVSync: Exact
+    Result: Exact
+  Summary: ExactPaths=3 DistinctPaths=0 MismatchPaths=0 UnavailablePaths=0 Stale=false
+```
+
+`ScalingRaw`などのraw値は環境によって異なります。例の値そのものではなく、Windows Settingsと物理配置に対する関係を確認してください。
+
+### Step 6の確認項目
+
+1. unit testが成功し、CLIがWindowsで正常にbuild・実行できる。
+2. Step 5とStep 6の`SnapshotStatus`が安定したtopologyで`SampledStable`となる。
+3. 横置きの`DISPLAY1` / `DISPLAY3`でGDI寸法、CCD source寸法、rotation適用後寸法が期待どおりとなる。
+4. 縦置きの`DISPLAY2`で、CCD source `1920x1080`と`Rotate270 (4)`から`1080x1920`が得られ、GDI `1080x1920`と`Exact`になる。
+5. GDI Hz、CCD path rational、CCD target VSyncのraw分子・分母が3関係として別々に表示される。
+6. `60/1`や`144/1`は対応するGDI整数Hzと`Exact`になり、近似やdecimal丸めが使われていない。
+7. 通常の3台・extend topologyで`ExactPaths=3`、`DistinctPaths=0`、`MismatchPaths=0`、`UnavailablePaths=0`、`Stale=false`となる。
+8. mode変更またはhotplugと重なったrunは`StaleSnapshot`またはAPI errorとなり、そのrunの値を成功証拠にしない。
+9. 実行前後で解像度、refresh rate、monitor配置などが変化しない。
+
+### Step 6の完了条件
+
+実装とREADMEの確認手順は完了しています。Windows実機で上記を確認し、標準出力を保存するまではStep 6を完了扱いにしません。59.94/60、DRR、clone、hotplugなどの追加support cellは、通常の3台・extend環境とは分けてStep 8までにfail-closed分類を確認します。
+
+## 初期リリースまでの実装roadmap
+
+現在、Step 1〜5のread-only display列挙、mode取得、CCD取得、GDI ↔ CCD exact cross-mapまで完了しています。Step 6の`CurrentObservation`統合は実装済みで、Windows実機検証待ちです。検証完了後に着手するのはStep 7です。
+
+### Read-only CLIの完成
+
+| Step | 対応phase | 内容 | 完了条件 |
+| --- | --- | --- | --- |
+| 6 | Phase 1A | `CurrentObservation`統合 | exact cross-mapごとにGDI現在値とCCD source/targetを統合し、rotation適用後の解像度とinteger/rational refreshの関係を`Exact`、`Distinct`、`Mismatch`、`Unavailable`で説明できる。`60`と`60000/1001`を近似一致にしない。 |
+| 7 | Phase 1A | candidate model構築 | 利用可能modeをwidth/height/Hzだけでなく、承認された完全な`DEVMODE` field tupleで保持する。duplicate、current-not-listed、不完全field、orientation/color policy差を推測せず分類する。 |
+| 8 | Phase 1A / G1A | read-only spike完了と結果review | 59.94/60、縦置き、candidate多数、current-not-listed、hotplug、RDP、virtual/multi-pathをfail-closed分類する。追加APIによるpreferred、persisted、HDR/DRR等の観測は、それぞれ個別承認されたread-only rowだけで行う。 |
+
+### 設定変更前の安全基盤
+
+| Step | 対応phase | 内容 | 完了条件 |
+| --- | --- | --- | --- |
+| 9 | Phase 2A | coordination/storage/process proof | displayを変更せず、watchdog、one-shot fake worker、dual-slot WAL/decision journal、machine/display/user lock、deadline、process identity、lease/fencing、crash consistencyを検証する。 |
+| 10 | Phase 1B | controlled mutation spike | Step 9のevidence reviewと別承認後、専用実機・外部映像確認・blind recovery手順の下で、一時的なmode変更、fresh readback、C0 exact restore、P0非変更を限定検証する。 |
+| 11 | Phase 2B | controlled watchdog recovery | real one-shot workerとwatchdogを統合し、timeout、manual Revert、親process終了、worker hang、session変更、watchdog takeoverで安全な復元またはfail-closedを実証する。 |
+
+### DisplayDeck製品実装
+
+| Step | 対応phase | 内容 | 完了条件 |
+| --- | --- | --- | --- |
+| 12 | Phase 3 | Tauri 2基盤 | React、TypeScript、Vite、Rust、単一local window、typed command、Capabilities/Permissions、CSP、navigation制限を構築する。shell/fs/http/process等の不要なfrontend権限を与えない。 |
+| 13 | Phase 4 | Mock UI | current/planned display cards、mode選択、Apply/Reset、2-stage presentation、15秒確認、Revert、startup recovery/error画面をmock stateで完成させる。 |
+| 14 | Phase 5 | Rust read-only統合 | Step 1〜8のquery/domain mappingをTauri commandへ移植し、raw device pathをfrontendへ公開せず、event lossをauthoritative status commandで再同期できるようにする。 |
+| 15 | Phase 6 | safety統合 | packaged watchdog、one-shot worker、journal、begin/confirm/restore/status、presentation ACK、startup recoveryを製品構成へ接続する。安全基盤がreadyでなければmutationを開始しない。 |
+| 16 | Phase 7 | Windows実機総合test | 承認されたWindows 10/11、GPU、driver、physical display cellで通常操作、59.94/60、縦置き、hotplug、process crash、rollback、session変化、accessibilityを検証する。 |
+| 17 | Phase 8 | installer・初期release判定 | NSIS候補、WebView2、署名、update/repair/uninstall、watchdog同梱・process behavior、recovery evidenceをpackaged環境で確認し、初期リリースのGo/No-Goを決定する。 |
+
+### Gateと実装完了の定義
+
+- Step 9のPhase 2Aとそのevidence reviewが完了するまで、display設定変更APIを実装・実行しない。
+- Step 10以降のmutation、watchdog recovery、product integration、installerは、それぞれ前提phaseの完了と別のhuman authorizationを必要とする。
+- Step 1〜6の承認や成功を、後続mutation phaseの承認として扱わない。
+- 初期リリースの実装完了はStep 17のpackaged検証とrelease判定までとする。
+- scale変更は初期リリースに含めず、別のPhase 9技術スパイクとして扱う。
+
+詳細なphase依存関係、安全要件、各gateは[`docs/implementation-plan.md`](docs/implementation-plan.md)を正本とします。
+
+## Windows以外で実行した場合
 
 Windows以外ではWindows APIをcompile対象にせず、次のメッセージを表示して終了します。
 

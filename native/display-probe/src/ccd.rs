@@ -65,7 +65,7 @@ pub struct CcdTarget {
     pub status_flags: u32,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 pub struct CcdSourceMode {
     pub width_pixels: u32,
     pub height_pixels: u32,
@@ -74,7 +74,7 @@ pub struct CcdSourceMode {
     pub position_y: i32,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 pub struct CcdTargetMode {
     pub pixel_rate: u64,
     pub horizontal_sync: Rational,
@@ -98,7 +98,7 @@ impl AdapterLuid {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Rational {
     pub numerator: u32,
     pub denominator: u32,
@@ -215,6 +215,21 @@ pub fn query_active_display_config() -> Result<CcdSnapshot, CcdQueryError> {
 }
 
 pub fn has_same_mapping_evidence(left: &CcdSnapshot, right: &CcdSnapshot) -> bool {
+    snapshots_have_same_path_multiset(left, right, path_mapping_evidence_equal)
+}
+
+pub fn has_same_current_observation_evidence(
+    left: &CcdSnapshot,
+    right: &CcdSnapshot,
+) -> bool {
+    snapshots_have_same_path_multiset(left, right, path_current_observation_evidence_equal)
+}
+
+fn snapshots_have_same_path_multiset(
+    left: &CcdSnapshot,
+    right: &CcdSnapshot,
+    paths_equal: fn(&CcdPath, &CcdPath) -> bool,
+) -> bool {
     if left.paths.len() != right.paths.len() {
         return false;
     }
@@ -226,8 +241,7 @@ pub fn has_same_mapping_evidence(left: &CcdSnapshot, right: &CcdSnapshot) -> boo
             .iter()
             .enumerate()
             .find(|(right_index, right_path)| {
-                !matched[*right_index]
-                    && path_mapping_evidence_equal(left_path, right_path)
+                !matched[*right_index] && paths_equal(left_path, right_path)
             })
         else {
             return false;
@@ -236,6 +250,17 @@ pub fn has_same_mapping_evidence(left: &CcdSnapshot, right: &CcdSnapshot) -> boo
     }
 
     true
+}
+
+fn path_current_observation_evidence_equal(left: &CcdPath, right: &CcdPath) -> bool {
+    path_mapping_evidence_equal(left, right)
+        && left.source_mode == right.source_mode
+        && left.target_mode == right.target_mode
+        && left.target.friendly_name == right.target.friendly_name
+        && left.target.rotation == right.target.rotation
+        && left.target.scaling == right.target.scaling
+        && left.target.refresh_rate == right.target.refresh_rate
+        && left.target.scan_line_ordering == right.target.scan_line_ordering
 }
 
 fn path_mapping_evidence_equal(left: &CcdPath, right: &CcdPath) -> bool {

@@ -6,6 +6,8 @@ mod ccd;
 mod display;
 #[cfg(target_os = "windows")]
 mod mapping;
+#[cfg(target_os = "windows")]
+mod observation;
 
 #[cfg(target_os = "windows")]
 const TARGET_NAME_FLAG_FRIENDLY_NAME_FROM_EDID: u32 = 1 << 0;
@@ -20,6 +22,9 @@ fn main() {
     println!();
 
     let adapters = display::enumerate_display_adapters();
+    let verification_snapshot = ccd_snapshot
+        .as_ref()
+        .map(|_| ccd::query_active_display_config());
 
     if adapters.is_empty() {
         println!("No display adapters found.");
@@ -44,7 +49,19 @@ fn main() {
     }
 
     println!();
-    print_cross_map(ccd_snapshot.as_ref(), &adapters);
+    let cross_map = print_cross_map(
+        ccd_snapshot.as_ref(),
+        verification_snapshot.as_ref(),
+        &adapters,
+    );
+
+    println!();
+    print_current_observations(
+        ccd_snapshot.as_ref(),
+        verification_snapshot.as_ref(),
+        cross_map.as_ref(),
+        &adapters,
+    );
 }
 
 #[cfg(target_os = "windows")]
@@ -174,31 +191,40 @@ fn query_and_print_ccd_snapshot() -> Option<ccd::CcdSnapshot> {
 }
 
 #[cfg(target_os = "windows")]
-fn print_cross_map(snapshot: Option<&ccd::CcdSnapshot>, adapters: &[display::DisplayAdapter]) {
+fn print_cross_map(
+    snapshot: Option<&ccd::CcdSnapshot>,
+    verification_snapshot: Option<&Result<ccd::CcdSnapshot, ccd::CcdQueryError>>,
+    adapters: &[display::DisplayAdapter],
+) -> Option<mapping::CrossMap> {
     println!("GDI <-> CCD Exact Cross-map");
 
     let Some(snapshot) = snapshot else {
         println!("  SnapshotStatus: ApiError (initial CCD query failed)");
         print_empty_mapping_summary(false);
-        return;
+        return None;
     };
 
-    let verification_snapshot = match ccd::query_active_display_config() {
+    let Some(verification_snapshot) = verification_snapshot else {
+        println!("  SnapshotStatus: ApiError (verification CCD query was not run)");
+        print_empty_mapping_summary(false);
+        return None;
+    };
+    let verification_snapshot = match verification_snapshot {
         Ok(snapshot) => snapshot,
         Err(error) => {
             println!("  SnapshotStatus: ApiError ({error})");
             println!("  Exact mapping was not finalized.");
             print_empty_mapping_summary(false);
-            return;
+            return None;
         }
     };
 
-    if !ccd::has_same_mapping_evidence(snapshot, &verification_snapshot) {
+    if !ccd::has_same_mapping_evidence(snapshot, verification_snapshot) {
         println!("  SnapshotStatus: StaleSnapshot");
         println!("  Active CCD mapping evidence changed during GDI enumeration.");
         println!("  Exact mapping was not finalized.");
         print_empty_mapping_summary(true);
-        return;
+        return None;
     }
 
     println!("  SnapshotStatus: SampledStable");
@@ -265,6 +291,148 @@ fn print_cross_map(snapshot: Option<&ccd::CcdSnapshot>, adapters: &[display::Dis
         cross_map.ambiguous_paths,
         cross_map.inconsistent_paths
     );
+
+    Some(cross_map)
+}
+
+#[cfg(target_os = "windows")]
+fn print_current_observations(
+    snapshot: Option<&ccd::CcdSnapshot>,
+    verification_snapshot: Option<&Result<ccd::CcdSnapshot, ccd::CcdQueryError>>,
+    cross_map: Option<&mapping::CrossMap>,
+    adapters: &[display::DisplayAdapter],
+) {
+    println!("GDI / CCD Current Observations");
+
+    let Some(snapshot) = snapshot else {
+        println!("  SnapshotStatus: ApiError (initial CCD query failed)");
+        print_empty_observation_summary(0, false);
+        return;
+    };
+    let Some(verification_snapshot) = verification_snapshot else {
+        println!("  SnapshotStatus: ApiError (verification CCD query was not run)");
+        print_empty_observation_summary(snapshot.paths.len(), false);
+        return;
+    };
+    let verification_snapshot = match verification_snapshot {
+        Ok(snapshot) => snapshot,
+        Err(error) => {
+            println!("  SnapshotStatus: ApiError ({error})");
+            println!("  Current observations were not finalized.");
+            print_empty_observation_summary(snapshot.paths.len(), false);
+            return;
+        }
+    };
+
+    if !ccd::has_same_current_observation_evidence(snapshot, verification_snapshot) {
+        println!("  SnapshotStatus: StaleSnapshot");
+        println!("  Active CCD current-observation evidence changed during GDI enumeration.");
+        println!("  Current observations were not finalized.");
+        print_empty_observation_summary(snapshot.paths.len(), true);
+        return;
+    }
+
+    let Some(cross_map) = cross_map else {
+        println!("  SnapshotStatus: Unavailable (exact cross-map was not finalized)");
+        print_empty_observation_summary(snapshot.paths.len(), false);
+        return;
+    };
+
+    println!("  SnapshotStatus: SampledStable");
+    println!("  Scope: current resolution/refresh relations only");
+    let report = observation::build_current_observations(snapshot, cross_map, adapters);
+
+    for path in &report.paths {
+        match path {
+            observation::PathObservation::Observed(path) => {
+                println!("  Path {}", path.path_index);
+                println!(
+                    "    Mapping: Adapter {} / Monitor {}",
+                    path.adapter_index, path.monitor_index
+                );
+                println!("    DeviceName: {}", escape_log_text(&path.device_name));
+                println!(
+                    "    FriendlyName: {}",
+                    log_text_or_empty_marker(&path.friendly_label)
+                );
+                println!("    Rotation: {}", path.rotation);
+                println!("    ScalingRaw: {}", path.scaling_raw);
+                println!(
+                    "    GdiDesktopResolution: {}",
+                    format_optional_dimensions(path.gdi_resolution)
+                );
+                println!(
+                    "    CcdSourceResolution: {}",
+                    format_optional_dimensions(path.ccd_source_resolution)
+                );
+                println!(
+                    "    RotationAppliedSourceResolution: {}",
+                    format_optional_dimensions(path.rotation_applied_source_resolution)
+                );
+                println!(
+                    "    DesktopResolutionRelation: {}",
+                    path.desktop_resolution_relation
+                );
+                println!(
+                    "    CcdTargetActiveResolution: {}",
+                    format_optional_dimensions(path.ccd_target_active_resolution)
+                );
+                println!(
+                    "    CcdSourceVsTargetActive: {}",
+                    path.source_target_resolution_relation
+                );
+                println!("    GdiRefresh: {}", path.gdi_refresh);
+                println!(
+                    "    CcdPathRefresh: {}",
+                    format_rational(path.ccd_path_refresh)
+                );
+                println!(
+                    "    CcdTargetVSync: {}",
+                    format_optional_rational(path.ccd_target_vsync)
+                );
+                println!(
+                    "    GdiVsCcdPathRefresh: {}",
+                    path.gdi_vs_ccd_path_refresh
+                );
+                println!(
+                    "    GdiVsCcdTargetVSync: {}",
+                    path.gdi_vs_ccd_target_vsync
+                );
+                println!(
+                    "    CcdPathVsTargetVSync: {}",
+                    path.ccd_path_vs_target_vsync
+                );
+                println!("    Result: {}", path.classification);
+            }
+            observation::PathObservation::Unavailable { path_index, reason } => {
+                println!("  Path {path_index}");
+                println!("    ObservationUnavailable: {reason}");
+                println!("    Result: Unavailable");
+            }
+        }
+    }
+
+    println!(
+        concat!(
+            "  Summary: ExactPaths={} DistinctPaths={} MismatchPaths={} ",
+            "UnavailablePaths={} Stale=false"
+        ),
+        report.exact_paths,
+        report.distinct_paths,
+        report.mismatch_paths,
+        report.unavailable_paths
+    );
+}
+
+#[cfg(target_os = "windows")]
+fn print_empty_observation_summary(unavailable_paths: usize, stale: bool) {
+    println!(
+        concat!(
+            "  Summary: ExactPaths=0 DistinctPaths=0 MismatchPaths=0 ",
+            "UnavailablePaths={} Stale={}"
+        ),
+        unavailable_paths, stale
+    );
 }
 
 #[cfg(target_os = "windows")]
@@ -292,12 +460,35 @@ fn format_mode_index(index: Option<u32>) -> String {
 
 #[cfg(target_os = "windows")]
 fn format_rational(value: ccd::Rational) -> String {
+    if value.numerator == 0 && value.denominator == 0 {
+        return "0/0 (unspecified)".to_owned();
+    }
     if value.denominator == 0 {
-        return format!("{}/{} (undefined)", value.numerator, value.denominator);
+        return format!(
+            "{}/{} (invalid denominator)",
+            value.numerator, value.denominator
+        );
+    }
+    if value.numerator == 0 {
+        return format!("0/{} (non-positive)", value.denominator);
     }
 
     let decimal = f64::from(value.numerator) / f64::from(value.denominator);
     format!("{}/{} ({decimal:.6} Hz)", value.numerator, value.denominator)
+}
+
+#[cfg(target_os = "windows")]
+fn format_optional_rational(value: Option<ccd::Rational>) -> String {
+    value
+        .map(format_rational)
+        .unwrap_or_else(|| "unavailable".to_owned())
+}
+
+#[cfg(target_os = "windows")]
+fn format_optional_dimensions(value: Option<observation::Dimensions>) -> String {
+    value
+        .map(|dimensions| dimensions.to_string())
+        .unwrap_or_else(|| "unavailable".to_owned())
 }
 
 #[cfg(target_os = "windows")]
