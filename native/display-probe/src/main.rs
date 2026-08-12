@@ -10,6 +10,8 @@ mod display;
 mod mapping;
 #[cfg(target_os = "windows")]
 mod observation;
+#[cfg(target_os = "windows")]
+mod qualification;
 
 #[cfg(target_os = "windows")]
 const TARGET_NAME_FLAG_FRIENDLY_NAME_FROM_EDID: u32 = 1 << 0;
@@ -24,14 +26,13 @@ const MAX_PRINTED_CANDIDATE_GROUP_INDICES: usize = 8_192;
 
 #[cfg(target_os = "windows")]
 fn main() {
-    let ccd_snapshot = query_and_print_ccd_snapshot();
+    let ccd_query = query_and_print_ccd_snapshot();
+    let ccd_snapshot = ccd_query.as_ref().ok();
     println!();
 
     let inventory = display::enumerate_display_adapters();
     let adapters = &inventory.adapters;
-    let verification_snapshot = ccd_snapshot
-        .as_ref()
-        .map(|_| ccd::query_active_display_config());
+    let verification_snapshot = ccd_snapshot.map(|_| ccd::query_active_display_config());
 
     println!("GDI Display Inventory");
     print_device_enumeration_status(
@@ -72,34 +73,46 @@ fn main() {
     }
 
     println!();
-    let cross_map = print_cross_map(
-        ccd_snapshot.as_ref(),
+    let mapping_capture = print_cross_map(
+        &ccd_query,
         verification_snapshot.as_ref(),
         &inventory,
     );
 
     println!();
-    print_current_observations(
-        ccd_snapshot.as_ref(),
+    let observation_capture = print_current_observations(
+        &ccd_query,
         verification_snapshot.as_ref(),
-        cross_map.as_ref(),
+        &mapping_capture,
         adapters,
     );
 
     println!();
     let candidate_catalog = candidate::build_candidate_catalog(&inventory);
     print_candidate_catalog(&candidate_catalog);
+
+    println!();
+    let gdi_environment_markers =
+        qualification::collect_gdi_environment_markers(&inventory);
+    let qualification = qualification::build_read_only_qualification_with_markers(
+        ccd_snapshot,
+        &mapping_capture,
+        &observation_capture,
+        &candidate_catalog,
+        gdi_environment_markers,
+    );
+    print_read_only_qualification(&qualification);
 }
 
 #[cfg(target_os = "windows")]
-fn query_and_print_ccd_snapshot() -> Option<ccd::CcdSnapshot> {
+fn query_and_print_ccd_snapshot() -> Result<ccd::CcdSnapshot, ccd::CcdQueryError> {
     println!("CCD Active Configuration");
 
     let snapshot = match ccd::query_active_display_config() {
         Ok(snapshot) => snapshot,
         Err(error) => {
             println!("  Error: {error}");
-            return None;
+            return Err(error);
         }
     };
 
@@ -214,43 +227,64 @@ fn query_and_print_ccd_snapshot() -> Option<ccd::CcdSnapshot> {
         }
     }
 
-    Some(snapshot)
+    Ok(snapshot)
 }
 
 #[cfg(target_os = "windows")]
 fn print_cross_map(
-    snapshot: Option<&ccd::CcdSnapshot>,
+    initial_snapshot: &Result<ccd::CcdSnapshot, ccd::CcdQueryError>,
     verification_snapshot: Option<&Result<ccd::CcdSnapshot, ccd::CcdQueryError>>,
     inventory: &display::DisplayInventory,
-) -> Option<mapping::CrossMap> {
+) -> qualification::MappingCapture {
     println!("GDI <-> CCD Exact Cross-map");
+
+    let snapshot = match initial_snapshot {
+        Ok(snapshot) => snapshot,
+        Err(error) => {
+            println!(
+                "  SnapshotStatus: Unavailable ({:?}: {error})",
+                error.failure_class()
+            );
+            print_empty_mapping_summary(false);
+            return qualification::MappingCapture::Unavailable(
+                qualification::MappingCaptureFailure::InitialCcdQueryFailed(
+                    error.failure_class(),
+                ),
+            );
+        }
+    };
 
     if !display_inventory_is_complete(inventory) {
         println!("  SnapshotStatus: BoundExceeded");
         println!("  GDI adapter/monitor enumeration reached a safety limit.");
         println!("  Exact mapping was not finalized.");
         print_empty_mapping_summary(false);
-        return None;
+        return qualification::MappingCapture::Unavailable(
+            qualification::MappingCaptureFailure::InventoryBoundExceeded,
+        );
     }
 
-    let Some(snapshot) = snapshot else {
-        println!("  SnapshotStatus: ApiError (initial CCD query failed)");
-        print_empty_mapping_summary(false);
-        return None;
-    };
-
     let Some(verification_snapshot) = verification_snapshot else {
-        println!("  SnapshotStatus: ApiError (verification CCD query was not run)");
+        println!("  SnapshotStatus: InternalInconsistency (verification CCD query was not run)");
         print_empty_mapping_summary(false);
-        return None;
+        return qualification::MappingCapture::Unavailable(
+            qualification::MappingCaptureFailure::InternalInconsistency,
+        );
     };
     let verification_snapshot = match verification_snapshot {
         Ok(snapshot) => snapshot,
         Err(error) => {
-            println!("  SnapshotStatus: ApiError ({error})");
+            println!(
+                "  SnapshotStatus: Unavailable ({:?}: {error})",
+                error.failure_class()
+            );
             println!("  Exact mapping was not finalized.");
             print_empty_mapping_summary(false);
-            return None;
+            return qualification::MappingCapture::Unavailable(
+                qualification::MappingCaptureFailure::VerificationCcdQueryFailed(
+                    error.failure_class(),
+                ),
+            );
         }
     };
 
@@ -259,7 +293,9 @@ fn print_cross_map(
         println!("  Active CCD mapping evidence changed during GDI enumeration.");
         println!("  Exact mapping was not finalized.");
         print_empty_mapping_summary(true);
-        return None;
+        return qualification::MappingCapture::Unavailable(
+            qualification::MappingCaptureFailure::StaleSnapshot,
+        );
     }
 
     println!("  SnapshotStatus: SampledStable");
@@ -327,35 +363,54 @@ fn print_cross_map(
         cross_map.inconsistent_paths
     );
 
-    Some(cross_map)
+    qualification::MappingCapture::SampledStable(cross_map)
 }
 
 #[cfg(target_os = "windows")]
 fn print_current_observations(
-    snapshot: Option<&ccd::CcdSnapshot>,
+    initial_snapshot: &Result<ccd::CcdSnapshot, ccd::CcdQueryError>,
     verification_snapshot: Option<&Result<ccd::CcdSnapshot, ccd::CcdQueryError>>,
-    cross_map: Option<&mapping::CrossMap>,
+    mapping_capture: &qualification::MappingCapture,
     adapters: &[display::DisplayAdapter],
-) {
+) -> qualification::ObservationCapture {
     println!("GDI / CCD Current Observations");
 
-    let Some(snapshot) = snapshot else {
-        println!("  SnapshotStatus: ApiError (initial CCD query failed)");
-        print_empty_observation_summary(0, false);
-        return;
+    let snapshot = match initial_snapshot {
+        Ok(snapshot) => snapshot,
+        Err(error) => {
+            println!(
+                "  SnapshotStatus: Unavailable ({:?}: {error})",
+                error.failure_class()
+            );
+            print_empty_observation_summary(0, false);
+            return qualification::ObservationCapture::Unavailable(
+                qualification::ObservationCaptureFailure::InitialCcdQueryFailed(
+                    error.failure_class(),
+                ),
+            );
+        }
     };
     let Some(verification_snapshot) = verification_snapshot else {
-        println!("  SnapshotStatus: ApiError (verification CCD query was not run)");
+        println!("  SnapshotStatus: InternalInconsistency (verification CCD query was not run)");
         print_empty_observation_summary(snapshot.paths.len(), false);
-        return;
+        return qualification::ObservationCapture::Unavailable(
+            qualification::ObservationCaptureFailure::InternalInconsistency,
+        );
     };
     let verification_snapshot = match verification_snapshot {
         Ok(snapshot) => snapshot,
         Err(error) => {
-            println!("  SnapshotStatus: ApiError ({error})");
+            println!(
+                "  SnapshotStatus: Unavailable ({:?}: {error})",
+                error.failure_class()
+            );
             println!("  Current observations were not finalized.");
             print_empty_observation_summary(snapshot.paths.len(), false);
-            return;
+            return qualification::ObservationCapture::Unavailable(
+                qualification::ObservationCaptureFailure::VerificationCcdQueryFailed(
+                    error.failure_class(),
+                ),
+            );
         }
     };
 
@@ -364,13 +419,17 @@ fn print_current_observations(
         println!("  Active CCD current-observation evidence changed during GDI enumeration.");
         println!("  Current observations were not finalized.");
         print_empty_observation_summary(snapshot.paths.len(), true);
-        return;
+        return qualification::ObservationCapture::Unavailable(
+            qualification::ObservationCaptureFailure::StaleSnapshot,
+        );
     }
 
-    let Some(cross_map) = cross_map else {
+    let Some(cross_map) = mapping_capture.stable_report() else {
         println!("  SnapshotStatus: Unavailable (exact cross-map was not finalized)");
         print_empty_observation_summary(snapshot.paths.len(), false);
-        return;
+        return qualification::ObservationCapture::Unavailable(
+            qualification::ObservationCaptureFailure::CrossMapUnavailable,
+        );
     };
 
     println!("  SnapshotStatus: SampledStable");
@@ -457,6 +516,8 @@ fn print_current_observations(
         report.mismatch_paths,
         report.unavailable_paths
     );
+
+    qualification::ObservationCapture::SampledStable(report)
 }
 
 #[cfg(target_os = "windows")]
@@ -840,6 +901,193 @@ fn print_candidate_catalog(catalog: &candidate::CandidateCatalog) {
 }
 
 #[cfg(target_os = "windows")]
+fn print_read_only_qualification(report: &qualification::ReadOnlyQualification) {
+    println!("Read-only Support Assessment");
+    println!("  Scope: diagnostic fail-closed precheck only");
+    println!("  CellIdentity: NotIssued (read-only Step 8)");
+    println!("  SupportFingerprint: NotIssued");
+    println!("  CcdQuerySurface: legacy QDC_ONLY_ACTIVE_PATHS");
+    println!("  ApprovedCcdSurfaceImplemented: false");
+    println!("  MappingCapture: {:?}", report.mapping_status);
+    println!("  ObservationCapture: {:?}", report.observation_status);
+    println!("  ActivePaths: {:?}", report.active_paths);
+    println!("  InventoryComplete: {}", report.inventory_complete);
+    println!(
+        "  CurrentTupleCaptureComplete: {}",
+        report.current_tuple_capture_complete
+    );
+    println!("  NonExactMappingPaths: {}", report.non_exact_mapping_paths);
+    println!("  CloneSourcePaths: {}", report.clone_source_paths);
+    println!(
+        "  NonExactObservationPaths: {}",
+        report.non_exact_observation_paths
+    );
+    println!(
+        "  PortraitRotation: observed={} exact={}",
+        report.portrait_rotation_paths, report.portrait_rotation_exact_paths
+    );
+    println!(
+        "  PositiveNonIntegralRefresh: comparisons={} distinct={}",
+        report.positive_non_integral_refresh_comparisons,
+        report.positive_non_integral_refresh_distinct_comparisons
+    );
+    println!(
+        "  UnqualifiedOutputTechnologyPaths: {}",
+        report.unqualified_output_technology_paths
+    );
+    println!(
+        "  CcdNativeEvidenceMarkers: {:?}",
+        report.ccd_native_evidence_markers
+    );
+    println!(
+        concat!(
+            "  GdiEnvironmentMarkers: attachedAdapters={} attachedMonitors={} ",
+            "mirroring={} remoteSdk={} rdpuddSdk={} ",
+            "knownUnqualifiedStateFlags={} unknownStateFlags={}"
+        ),
+        report.gdi_environment_markers.attached_adapter_devices,
+        report.gdi_environment_markers.attached_monitor_devices,
+        report.gdi_environment_markers.mirroring_driver_devices,
+        report.gdi_environment_markers.remote_sdk_devices,
+        report.gdi_environment_markers.rdpudd_sdk_devices,
+        report
+            .gdi_environment_markers
+            .known_unqualified_state_flag_devices,
+        report.gdi_environment_markers.unknown_state_flag_devices
+    );
+    println!("  GdiActiveCoverage: {:?}", report.gdi_active_coverage);
+    println!("  CandidateVolume: {:?}", report.candidate_volume);
+    println!(
+        "  ManyCandidateAdapters: {}",
+        format_u32_list(&report.many_candidate_adapters)
+    );
+    println!(
+        "  CurrentNotListedAdapters: {}",
+        format_u32_list(&report.current_not_listed_adapters)
+    );
+    println!(
+        concat!(
+            "  Candidates: records={} labUnqualified={} ",
+            "activeAdapterLabUnqualified={} hardExcluded={}"
+        ),
+        report.candidate_records,
+        report.lab_unqualified_candidates,
+        report.active_adapter_lab_unqualified_candidates,
+        report.hard_excluded_candidates
+    );
+    print_hard_exclusion_histogram(&report.hard_exclusion_histogram);
+    println!("  Invariants: {:?}", report.invariants);
+    println!(
+        "  InvariantsSatisfied: {}",
+        report.invariants.all_satisfied()
+    );
+    println!("  Blockers:");
+    if report.blockers.is_empty() {
+        println!("    none (evidence gaps still prevent qualification)");
+    } else {
+        for blocker in &report.blockers {
+            println!("    {blocker:?}");
+        }
+    }
+    println!("  EvidenceGaps:");
+    for gap in report.evidence_gaps {
+        println!("    {gap:?}");
+    }
+    println!("  Disposition: {:?}", report.disposition);
+    println!("  MutationReadiness: {:?}", report.mutation_readiness);
+    println!("  MutationAllowed: false");
+    println!("  ProductAllowed: 0");
+    println!("  SelectionTokens: 0");
+    println!("  G1AGate: {:?}", report.g1a_gate);
+    println!("  Phase1AClosure: {:?}", report.phase_1a_closure);
+}
+
+#[cfg(target_os = "windows")]
+fn print_hard_exclusion_histogram(histogram: &qualification::HardExclusionHistogram) {
+    println!(
+        "  HardExclusionReasonOccurrences: {}",
+        histogram.total_occurrences()
+    );
+    for (name, count) in [
+        ("TupleIncomplete", histogram.tuple_incomplete),
+        (
+            "AdapterNotAttachedToDesktop",
+            histogram.adapter_not_attached_to_desktop,
+        ),
+        (
+            "AdapterEnumerationIncomplete",
+            histogram.adapter_enumeration_incomplete,
+        ),
+        (
+            "MonitorEnumerationIncomplete",
+            histogram.monitor_enumeration_incomplete,
+        ),
+        (
+            "EnumerationEmptyOrUnavailable",
+            histogram.enumeration_empty_or_unavailable,
+        ),
+        ("EnumerationIncomplete", histogram.enumeration_incomplete),
+        ("CurrentUnavailable", histogram.current_unavailable),
+        (
+            "CurrentChangedDuringCapture",
+            histogram.current_changed_during_capture,
+        ),
+        (
+            "CurrentTupleIncomplete",
+            histogram.current_tuple_incomplete,
+        ),
+        ("CurrentNotListed", histogram.current_not_listed),
+        (
+            "CurrentExactRecordAmbiguous",
+            histogram.current_exact_record_ambiguous,
+        ),
+        ("ExactTupleDuplicate", histogram.exact_tuple_duplicate),
+        (
+            "DriverDefaultFrequency",
+            histogram.driver_default_frequency,
+        ),
+        (
+            "CurrentDriverDefaultFrequency",
+            histogram.current_driver_default_frequency,
+        ),
+        ("BitsPerPixelBelow32", histogram.bits_per_pixel_below_32),
+        (
+            "CurrentBitsPerPixelBelow32",
+            histogram.current_bits_per_pixel_below_32,
+        ),
+        (
+            "KnownButUnsupportedDisplayFlags",
+            histogram.known_but_unsupported_display_flags,
+        ),
+        (
+            "CurrentKnownButUnsupportedDisplayFlags",
+            histogram.current_known_but_unsupported_display_flags,
+        ),
+        ("PolicyDifferent", histogram.policy_different),
+        (
+            "PolicyEvidenceUnavailable",
+            histogram.policy_evidence_unavailable,
+        ),
+    ] {
+        if count != 0 {
+            println!("    {name}: {count}");
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn format_u32_list(values: &[u32]) -> String {
+    if values.is_empty() {
+        return "none".to_owned();
+    }
+    values
+        .iter()
+        .map(u32::to_string)
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+#[cfg(target_os = "windows")]
 fn print_candidate_groups(
     label: &str,
     groups: &[candidate::CandidateRecordGroup],
@@ -976,6 +1224,13 @@ fn print_device_info(indent: &str, info: &display::DisplayDeviceInfo) {
         "{indent}AttachedToDesktop: {}",
         info.is_attached_to_desktop
     );
+    println!("{indent}StateFlagsRaw: 0x{:08X}", info.state_flags_raw);
+    println!(
+        "{indent}MirroringDriverMarker: {}",
+        info.mirroring_driver_marker
+    );
+    println!("{indent}RemoteSdkMarker: {}", info.remote_sdk_marker);
+    println!("{indent}RdpuddSdkMarker: {}", info.rdpudd_sdk_marker);
 }
 
 #[cfg(target_os = "windows")]

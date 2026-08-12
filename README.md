@@ -18,6 +18,7 @@ Step 1では、読み取り専用のRust CLIを使って、Windowsのディス�
 - `DeviceKey`
 - primary displayかどうか
 - desktopに接続されているか
+- raw `StateFlags`とmirroring / remote / RDPUDD SDK marker（positive diagnosticのみ）
 
 ### 前提条件
 
@@ -52,6 +53,10 @@ Adapter 0
   DeviceKey: ...
   Primary: true
   AttachedToDesktop: true
+  StateFlagsRaw: 0x00000005
+  MirroringDriverMarker: false
+  RemoteSdkMarker: false
+  RdpuddSdkMarker: false
   CurrentResolution: 3440x1440
   CurrentRefreshRateHz: 144
 
@@ -305,7 +310,7 @@ GDI <-> CCD Exact Cross-map
 
 通常・安定topologyでのStep 5は完了です。hotplug中の`StaleSnapshot`は追加検証項目として未実施ですが、通常状態の完了条件には含めません。完全一致または整合性検査が成立しない別環境では推測で補完せず、そのsupport cellを`Unmapped`、`Ambiguous`、または`Inconsistent`として記録します。
 
-## Step 6: CurrentObservation統合（baseline実機検証完了・Step 7回帰確認待ち）
+## Step 6: CurrentObservation統合（Windows実機検証完了）
 
 Step 5で一意にcross-mapできたactive pathごとに、GDIの現在値とCCDのsource/target値を1つのread-only `CurrentObservation`へ統合します。新しいWindows API、crate dependency、`windows` feature、`unsafe`は追加していません。解像度・refresh rate・配置を変更するAPIも使用しません。
 
@@ -407,9 +412,9 @@ GDI / CCD Current Observations
 
 通常の3台・extend環境でWindows実機検証済みです。Step 6実装時点のunit testは`10 passed; 0 failed`で、Step 5 / Step 6はいずれも`SnapshotStatus: SampledStable`となりました。横置きの`DISPLAY1` / `DISPLAY3`、縦置きの`DISPLAY2`でrotation適用後の寸法が一致し、GDI `144` / `60`とCCD `144/1` / `60/1`の関係もすべて`Exact`でした。
 
-実機summaryは`ExactPaths=3`、`DistinctPaths=0`、`MismatchPaths=0`、`UnavailablePaths=0`、`Stale=false`です。実行前後で解像度、refresh rate、配置に変化がないことも目視確認済みとして、通常環境のStep 6 baselineは完了です。Step 7でGDI currentをfull tupleのbefore / after samplingへ強化したため、現HEADについてはStep 7の実機確認時に同じStep 6 summaryも回帰確認します。59.94/60、DRR、clone、hotplugなどの追加support cellは、通常の3台・extend環境とは分けてStep 8までにfail-closed分類を確認します。
+実機summaryは`ExactPaths=3`、`DistinctPaths=0`、`MismatchPaths=0`、`UnavailablePaths=0`、`Stale=false`です。実行前後で解像度、refresh rate、配置に変化がないことも目視確認済みとして、通常環境のStep 6 baselineは完了です。Step 7でGDI currentをfull tupleのbefore / after samplingへ強化した現HEADでも同じsummaryとなり、回帰がないことを確認済みです。59.94/60、DRR、clone、hotplugなどの追加support cellは、通常の3台・extend環境とは分けてStep 8でfail-closed分類します。
 
-## Step 7: `DEVMODEW` candidate model（実装済み・Windows実機検証待ち）
+## Step 7: `DEVMODEW` candidate model（Windows実機検証完了）
 
 Step 7では、Step 3のnormal mode列挙結果をwidth / height / Hzだけの表示値として扱わず、`dmFields`のpresenceを含むallowlisted [`DEVMODEW`](https://learn.microsoft.com/en-us/windows/win32/api/wingdi/ns-wingdi-devmodew) tupleとして保持します。duplicate、同じ表示labelを持つ別tuple、current-not-listed、不完全field、currentとのorientation / color policy差を、推測せず別々に分類します。
 
@@ -532,7 +537,7 @@ GDI Mode Candidate Classification
 ### Step 7の確認項目
 
 1. `cargo test`で25件すべて成功し、CLIがWindowsでbuild・実行できる。
-2. adapter / monitor / modeの各enumeration status、`CurrentTupleStatus`、`CurrentMembership`を保存し、通常環境で`Complete`となる。
+2. adapter / monitorのenumeration statusを保存する。active adapterではmode enumerationと`CurrentTupleStatus`が`Complete`になることを確認し、desktop未接続adapterの`EmptyOrUnavailable`はそのまま保持する。active / inactiveを問わずmode上限到達はcompleteへ昇格しない。
 3. currentがfull tupleで1件、複数、0件のどれに分類されたかを、projection-only一致と分けて確認する。
 4. 既存の見た目が同じmodeについて、`ExactTupleDuplicate`か`ProjectionCollision`かをfull tupleで説明できる。
 5. `dmFields`、position、orientation、fixed output、bits per pixel、display flags、raw frequencyがpresence込みで表示される。
@@ -545,11 +550,204 @@ GDI Mode Candidate Classification
 
 ### Step 7の完了条件
 
-実装と確認手順は完了しています。Windows実機でunit test、full tuple、duplicate / projection collision、current membership、policy、summaryを確認して標準出力を保存するまでは、Step 7を完了扱いにしません。current-not-listed等をその実機で再現できない場合は通常cellの結果を記録し、追加support cellのfail-closed確認をStep 8へ残します。
+Windows実機で`cargo test`の25件がすべて成功し、`cargo build`とCLI実行も完了しました。完全ログでStep 5は`ExactPaths=3`、Step 6は`ExactPaths=3` / `UnavailablePaths=0`のままで、Step 7追加後の回帰がないことを確認済みです。縦置き`DISPLAY2`もCCD source `1920x1080`へ`Rotate270`を適用した`1080x1920`がGDI currentと`Exact`になりました。
+
+Step 7の実機結果は次のとおりです。
+
+```text
+AdapterEnumerationStatus: Complete
+Mutation: disabled; ProductAllowed=0; SelectionTokens=0
+
+DISPLAY1 CurrentMembership: NotListedExact (projection-only Mode 315)
+DISPLAY2 CurrentMembership: NotListedExact (projection-only Mode 18)
+DISPLAY3 CurrentMembership: NotListedExact (projection-only Mode 18)
+
+Summary: Records=619 Complete=619 Incomplete=0
+         ExactDuplicateGroups=0 ExactDuplicateRecords=0
+         ProjectionCollisionRecords=591
+         LabUnqualified=0 HardExcluded=619
+         ProductAllowed=0 SelectionTokens=0
+```
+
+このWindows実機観測環境では、currentと同じwidth / height / integer Hzを持つrecordは存在しても、presenceを含むfull tupleが一致するnormal candidateはありませんでした。`ExactTupleDuplicate`は発生せず、同じ表示labelを持つ異なるtupleである`ProjectionCollision`を591件観測しました。CLIはprojection-only一致をcurrent candidateへ昇格せず、619件すべてを`HardExcluded`にしており、Step 7のfail-closed規則が実機でも機能しています。
+
+通常の3台・extend環境に対するStep 7は完了です。この結果はcandidate policyを緩和する根拠ではなく、このWindows実機観測環境では現時点でmutation候補を発行できないという、将来のG1A review入力の一部です。正式なsupport cell identity、support fingerprint、machine manifest、evidence IDはまだ発行していません。3本のdistinct-source active pathによる複数display構成はStep 8でfail-closed evidenceとして扱い、59.94/60、hotplug、RDP、virtual、clone / shared-sourceは別cellまたは未観測gapとして分類します。
+
+## Step 8: read-only support assessment（実装済み・Windows実機検証待ち）
+
+Step 8では、Step 5のexact cross-map、Step 6のcurrent observation、Step 7のcandidate catalogを、文字列出力ではなく同じtyped reportから集約します。目的は、現在の観測環境で確認できたnegative evidenceと未観測gapを区別し、初期mutation対象へ誤って昇格させないことです。
+
+これは診断用のfail-closed precheckです。`Supported`、`Qualified`、`canApply`に相当する型や分岐は持ちません。すべての実行で次を固定します。
+
+```text
+MutationReadiness: Blocked
+MutationAllowed: false
+ProductAllowed: 0
+SelectionTokens: 0
+G1AGate: NotReadyEvidenceGaps
+Phase1AClosure: NotClaimed
+```
+
+新しいWindows API、crate dependency、`windows` feature、`unsafe`は追加していません。既存のread-only APIだけを使用し、display変更、registry write、PowerShell、cmd、process spawnは実装しません。
+
+### typed captureとfail-closed規則
+
+Step 5 / 6のprint関数が成功・失敗理由を失わないよう、次のtyped outcomeへ変更しました。Step 8は標準出力をparseせず、この値を直接使用します。
+
+- `MappingCapture::SampledStable(CrossMap)`または`Unavailable(reason)`
+- `ObservationCapture::SampledStable(CurrentObservationReport)`または`Unavailable(reason)`
+
+adapter / monitor / mode列挙上限、initial / verification CCD API error、stale snapshot、cross-map未確定はそれぞれ別reasonのまま伝播します。CCD errorは`ConsoleOrDesktopAccessDenied`、`BoundExceeded`、`TopologyRace`、`UnsupportedNativeEvidence`、`InvalidNativeEvidence`、`ApiError`へ正規化します。`ERROR_ACCESS_DENIED`はconsoleまたはcurrent desktopへaccessできない、あるいはremote sessionの可能性があるという広いnegative evidenceであり、RDP確定とは表示しません。invariant不一致、API unavailable、stale、active path 0本または2本以上、clone / shared source、non-exact mapping / observation、特殊・未知output technology、positive GDI remote marker、current-not-listed、候補0件またはactive adapterにlab候補がない状態を成功へ補正しません。
+
+`DISPLAY_DEVICEW.StateFlags`はraw値と、mirroring driver / remote / RDPUDDのSDK markerを保持します。adapterとmonitorで意味が重なるbitをcontext別に判定し、初期cellで許可していない既知bitとSDK mask外の未知bitもmarkerにします。さらに、GDIでdesktop接続と報告されたadapter / monitorのbounded bitsetと、CCD exact source / target mappingの逆向きcoverageを比較します。片側にしかないattached deviceや重複indexを整合済みと扱いません。markerが存在する場合はfail closedですが、markerがないことをsingle local console sessionの証明にはしません。`TS_COMPATIBLE`などのSDK marker名からremote sessionを断定しません。CCD output technologyのSDTV dongle、Miracast、indirect wired、indirect virtual、DisplayPort USB tunnel、`OTHER`、reserved / 未知値もunqualified markerです。通常のHDMI / DisplayPort等を観測してもphysical support fingerprintが証明されたとは扱いません。
+
+CCD path / source / targetのstatus flag、rotation、scaling、pathとtarget modeのscan-line ordering、source pixel formatもallowlistで検査します。legacy precheckではpath flagは`ACTIVE`のみ、source statusは`IN_USE`のみ、target statusは`IN_USE`のみ、rotationは1〜4、scalingは通常値1〜4、scan-line orderingはprogressive、pixel formatは32bppだけをmissing-evidence-only経路へ通します。DRR boost、preferred-unscaled、forced target、HMD、custom / preferred scaling、unspecified / interlaced scan-line、8/16/24bpp、`NONGDI`、未知bit / enumは観測済みunsupported evidenceとしてfail closedにします。これは値からvirtual deviceやremote sessionを推測するものではありません。
+
+現行CCD queryはStep 4から継続してlegacyな`QDC_ONLY_ACTIVE_PATHS`です。返却pathに`DISPLAYCONFIG_PATH_SUPPORT_VIRTUAL_MODE`がある場合、virtual-aware unionをlegacy `modeInfoIdx`として読む前にrunを拒否します。未知path flagもunion read前に拒否します。
+
+assessmentの総合状態は次の3種類です。どの状態でも`MutationReadiness: Blocked`、`MutationAllowed: false`、`ProductAllowed: 0`、`SelectionTokens: 0`、`Phase1AClosure: NotClaimed`です。
+
+| Disposition | 意味 |
+| --- | --- |
+| `NotAssessable` | API結果または内部構造の完全性を信頼できず、判定不能 |
+| `RejectedByObservedEvidence` | 安全にdecodeできたnegative / unsupported / unknown evidence、race、access denial、上限超過などを観測 |
+| `BlockedByMissingEvidence` | 限定したread-only観測は整合したが、正式qualificationに必要な固定gapが残る |
+
+内部invariant不一致やnative構造不整合とnegative blockerが同時にある場合は`NotAssessable`を優先し、個別blockerのdetailは失わず保持します。
+
+設計資料のPhase 1A first-cell候補surfaceは`QDC_ONLY_ACTIVE_PATHS | QDC_VIRTUAL_MODE_AWARE`と別のallocation contractを要求しています。Step 8では、このflag変更とvirtual-aware index decodeを暗黙に追加せず、`ApprovedCcdSurfaceNotImplemented`として明示します。この差が残る限り、正式なPhase 1A closureを主張しません。[`QDC_VIRTUAL_MODE_AWARE`](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-querydisplayconfig)を使用する次のcapture surfaceは、別途明示承認とWindows再検証が必要です。
+
+### scenario分類
+
+現在のAPI surfaceから、次を互いに独立して集計します。
+
+- active path 0 / 1 / 複数と、同一source endpointを共有するclone path
+- portrait rotationを観測したpath数と、そのうちStep 6 `Exact`となったpath数
+- positive non-integral CCD rationalと、整数GDI Hzに対して`Distinct`を維持した比較数
+- candidate総数と9件以上のadapter
+- `CurrentMembership::NotListedExact`となったadapter
+- candidateのfixed-kind `HardExclusion` reason histogram
+- Miracast / indirect / unknown output technologyとGDI remote関連marker
+- DRR / HMD / status flag / rotation / scaling / scan-line / pixel-formatの既知unsupportedまたは未知native marker
+- mapping / observation / candidate summary、path index / location、source / target endpoint multiplicity、GDI attached deviceのreverse coverage、provenance、read-only counterの内部invariant
+- exact source mappingに現れるactive adapter自身が持つ`LabUnqualified`候補数。active外adapterの候補ではこの条件を満たさない
+
+`60`と`60000/1001`は引き続き近似一致にしません。stableな2回のsnapshotはhotplug不在の証明ではないため、hotplugは未qualification gapのままです。API成功もRDP、Fast User Switching、second interactive logonがないことを証明しません。
+
+preferred mode、persisted baseline、advanced color / HDR、DRR / virtual refresh、exact expected observation、candidate-target binding、support fingerprintは、現在の承認済み実装surfaceでは取得または確定していません。値を推測せずevidence gapとして表示します。
+
+### 実行手順と期待する通常環境の判定
+
+Windows上のリポジトリルートで実行します。
+
+```text
+cargo fmt --manifest-path native/display-probe/Cargo.toml
+cargo fmt --manifest-path native/display-probe/Cargo.toml -- --check
+cargo test --manifest-path native/display-probe/Cargo.toml
+cargo build --manifest-path native/display-probe/Cargo.toml
+cargo run --manifest-path native/display-probe/Cargo.toml
+```
+
+完全な検証ログを残す場合は、Windows PowerShellで次を実行します。各`cargo`実行直後の`$LASTEXITCODE`を確認し、非0ならそこで検証を停止します。
+
+```powershell
+cargo fmt --manifest-path native/display-probe/Cargo.toml -- --check
+if ($LASTEXITCODE -ne 0) { throw "cargo fmt --check failed: $LASTEXITCODE" }
+
+cargo test --manifest-path native/display-probe/Cargo.toml 2>&1 |
+    Tee-Object -FilePath step8-windows-tests.txt
+if ($LASTEXITCODE -ne 0) { throw "cargo test failed: $LASTEXITCODE" }
+
+cargo build --manifest-path native/display-probe/Cargo.toml 2>&1 |
+    Tee-Object -FilePath step8-windows-build.txt
+if ($LASTEXITCODE -ne 0) { throw "cargo build failed: $LASTEXITCODE" }
+
+cargo run --manifest-path native/display-probe/Cargo.toml 2>&1 |
+    Tee-Object -FilePath step8-windows-validation.txt
+if ($LASTEXITCODE -ne 0) { throw "cargo run failed: $LASTEXITCODE" }
+```
+
+保存したログから主要な完了条件を抽出します。
+
+```powershell
+Select-String -Path step8-windows-tests.txt -Pattern 'test result: ok. 55 passed'
+
+$step8Patterns = @(
+    'SnapshotStatus: SampledStable'
+    'Summary: ExactPaths=3'
+    'GdiActiveCoverage: Assessed'
+    'consistent: true'
+    'Disposition: RejectedByObservedEvidence'
+    'MutationAllowed: false'
+    'ProductAllowed: 0'
+    'SelectionTokens: 0'
+    'Phase1AClosure: NotClaimed'
+)
+Select-String -Path step8-windows-validation.txt -Pattern $step8Patterns
+```
+
+`Select-String`は存在確認用です。件数や前後関係を省略せず確認するため、最後に`step8-windows-validation.txt`全体も保存・確認してください。Windows PowerShellでは、Cargoがstderrへ出す正常なstatus行を`2>&1`で取り込んだ際に`NativeCommandError`形式で表示される場合があります。その表示だけで失敗とは判定せず、`$LASTEXITCODE`、`test result`、各summaryを併せて確認します。
+
+上記3個の`step8-windows-*.txt`は実機検証用のローカルartifactであり、Gitへ追加しません。実行前後にWindows Settingsで解像度、refresh rate、monitor配置が変化していないことも目視確認します。
+
+Step 8追加後のunit testは合計55件です。通常の3台・extend観測環境では、末尾に概ね次の判定が追加されます。
+
+```text
+Read-only Support Assessment
+  Scope: diagnostic fail-closed precheck only
+  CellIdentity: NotIssued (read-only Step 8)
+  SupportFingerprint: NotIssued
+  CcdQuerySurface: legacy QDC_ONLY_ACTIVE_PATHS
+  ApprovedCcdSurfaceImplemented: false
+  MappingCapture: SampledStable
+  ObservationCapture: SampledStable
+  ActivePaths: MultipleActivePaths { count: 3 }
+  InventoryComplete: true
+  CurrentTupleCaptureComplete: true
+  PortraitRotation: observed=1 exact=1
+  PositiveNonIntegralRefresh: comparisons=0 distinct=0
+  CcdNativeEvidenceMarkers: ...all zero...
+  GdiEnvironmentMarkers: attachedAdapters=3 attachedMonitors=3 mirroring=0 remoteSdk=0 rdpuddSdk=0 knownUnqualifiedStateFlags=0 unknownStateFlags=0
+  GdiActiveCoverage: Assessed { attached_adapters: 3, exact_source_adapters: 3, attached_monitors: 3, exact_target_monitors: 3, consistent: true }
+  CandidateVolume: NineOrMore { count: 619 }
+  CurrentNotListedAdapters: 0,1,2
+  Candidates: records=619 labUnqualified=0 activeAdapterLabUnqualified=0 hardExcluded=619
+  Blockers:
+    MultipleActivePaths { count: 3 }
+    CurrentNotListedAdapters { count: 3 }
+    NoActiveAdapterLabUnqualifiedCandidates { active_adapters: 3, hard_excluded: 619 }
+  Disposition: RejectedByObservedEvidence
+  MutationAllowed: false
+  ProductAllowed: 0
+  SelectionTokens: 0
+  G1AGate: NotReadyEvidenceGaps
+  Phase1AClosure: NotClaimed
+```
+
+ここでの`RejectedByObservedEvidence`はCLI実行失敗ではありません。3 active paths、3 adapterの`NotListedExact`、619件all-hard-excludedという観測済みnegative evidenceにより、この環境へmutation候補を発行しないという期待結果です。desktop未接続`DISPLAY4`のmodeが`EmptyOrUnavailable`でも、active source mappingに含まれなければ`CurrentTupleCaptureComplete`をfalseにはしません。ただしactive / inactiveを問わずmode列挙が上限へ達した場合はinventory incompleteとして拒否します。
+
+### Step 8の確認項目
+
+1. Windowsで55件のunit test、build、CLI実行が成功する。
+2. Step 5 / 6 / 7のsummaryに回帰がない。
+3. 通常の3台環境で`MultipleActivePaths { count: 3 }`、portrait `observed=1 exact=1`、candidate 619件、current-not-listed adapter 3件が表示される。
+4. `CurrentNotListed`のhard exclusion reasonが候補ごとに失われず、fixed histogramへ有界に集計される。
+5. `Disposition: RejectedByObservedEvidence`、`MutationAllowed: false`、`ProductAllowed: 0`、`SelectionTokens: 0`となる。
+6. remote / virtual markerがない通常runでも、local physical / single-sessionを証明したと表示しない。
+7. stable runをhotplug検証成功と表示せず、ABAとsampling後の変化を未検証gapとして残す。
+8. access denied、上限、race、未対応layout、invalid native evidence、ordinary API errorが同じgeneric errorへ潰れずtyped statusへ残る。
+9. GDI attached adapter / monitorとCCD exact source / targetのreverse coverageが一致し、余分・欠落・重複があれば拒否される。
+10. DRR boost、HMD、unknown status / enum / GDI state bitなどが`BlockedByMissingEvidence`へ昇格しない。
+11. `ApprovedCcdSurfaceNotImplemented`、session / RDP、candidate binding、expected observation、support fingerprint、preferred / persisted / HDR / DRR、formal evidence bundle等のgapが表示される。
+12. 実行前後で解像度、refresh rate、monitor配置などが変化しない。
+
+### Step 8の完了条件
+
+実装と確認手順は完了しています。Windowsで55件のtestと実機出力を確認するまではStep 8実装を完了扱いにしません。また、Step 8のWindows検証が成功しても、正式なPhase 1A / G1A closureとは別です。exact support cell identity、OS build / KB、GPU / driver / monitor / connection manifest、session / privilege evidence、approved CCD surface、call trace / timebox、sanitized bounded evidence bundle、human reviewが不足している間は`Phase1AClosure: NotClaimed`を維持します。
 
 ## 初期リリースまでの実装roadmap
 
-Step 1〜6のread-only display列挙、mode取得、CCD取得、GDI ↔ CCD exact cross-map、`CurrentObservation`統合はStep 6 commit時点でWindows実機検証済みです。Step 7ではGDI current samplingを強化したため、現HEADのStep 5 / 6回帰確認とStep 7 candidate modelのWindows実機検証を待っています。
+Step 1〜7のread-only display列挙、mode取得、CCD取得、GDI ↔ CCD exact cross-map、`CurrentObservation`統合、candidate modelはWindows実機検証済みです。Step 7後の現HEADでもStep 5 / 6の回帰がないことを確認しました。Step 8のfail-closed qualification実装はWindows検証待ちです。通常環境の成功だけでread-only spike全体を完了扱いにせず、観測済みnegative evidenceと未観測または初期対象外のgapを分けて、将来のG1A result reviewへ渡します。
 
 ### Read-only CLIの完成
 

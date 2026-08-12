@@ -9,8 +9,14 @@ use windows::Win32::{
         DISPLAYCONFIG_PATH_INFO, DISPLAYCONFIG_RATIONAL, DISPLAYCONFIG_SOURCE_DEVICE_NAME,
         DISPLAYCONFIG_TARGET_DEVICE_NAME, QDC_ONLY_ACTIVE_PATHS,
     },
-    Foundation::{ERROR_INSUFFICIENT_BUFFER, ERROR_SUCCESS, LUID},
-    Graphics::Gdi::DISPLAYCONFIG_PATH_MODE_IDX_INVALID,
+    Foundation::{
+        ERROR_ACCESS_DENIED, ERROR_INSUFFICIENT_BUFFER, ERROR_NOT_SUPPORTED, ERROR_SUCCESS,
+        LUID,
+    },
+    Graphics::Gdi::{
+        DISPLAYCONFIG_PATH_MODE_IDX_INVALID, DISPLAYCONFIG_PATH_SUPPORT_VIRTUAL_MODE,
+        DISPLAYCONFIG_PATH_VALID_FLAGS,
+    },
 };
 
 const MAX_QUERY_ATTEMPTS: usize = 3;
@@ -137,6 +143,49 @@ pub enum CcdQueryError {
         path_index: usize,
         role: &'static str,
     },
+    VirtualModeLayoutUnqualified {
+        path_index: usize,
+    },
+    UnknownPathFlags {
+        path_index: usize,
+        mask: u32,
+    },
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CcdQueryFailureClass {
+    ConsoleOrDesktopAccessDenied,
+    BoundExceeded,
+    TopologyRace,
+    UnsupportedNativeEvidence,
+    InvalidNativeEvidence,
+    ApiError,
+}
+
+impl CcdQueryError {
+    pub fn failure_class(&self) -> CcdQueryFailureClass {
+        match self {
+            Self::Win32 { code, .. } if *code == ERROR_ACCESS_DENIED.0 => {
+                CcdQueryFailureClass::ConsoleOrDesktopAccessDenied
+            }
+            Self::Win32 { code, .. } if *code == ERROR_NOT_SUPPORTED.0 => {
+                CcdQueryFailureClass::UnsupportedNativeEvidence
+            }
+            Self::Win32 { .. } => CcdQueryFailureClass::ApiError,
+            Self::CountLimit { .. } => CcdQueryFailureClass::BoundExceeded,
+            Self::BufferChangedRepeatedly => CcdQueryFailureClass::TopologyRace,
+            Self::VirtualModeLayoutUnqualified { .. } | Self::UnknownPathFlags { .. } => {
+                CcdQueryFailureClass::UnsupportedNativeEvidence
+            }
+            Self::ReturnedCountExceededBuffer
+            | Self::ModeIndexOutOfRange { .. }
+            | Self::ModeTypeMismatch { .. }
+            | Self::ModeIdentityMismatch { .. }
+            | Self::DeviceInfoHeaderMismatch { .. } => {
+                CcdQueryFailureClass::InvalidNativeEvidence
+            }
+        }
+    }
 }
 
 impl fmt::Display for CcdQueryError {
@@ -188,6 +237,14 @@ impl fmt::Display for CcdQueryError {
             Self::DeviceInfoHeaderMismatch { path_index, role } => write!(
                 formatter,
                 "path {path_index} {role} device-info response header does not match the request"
+            ),
+            Self::VirtualModeLayoutUnqualified { path_index } => write!(
+                formatter,
+                "path {path_index} uses the virtual-aware mode-index layout, which this legacy query surface does not decode"
+            ),
+            Self::UnknownPathFlags { path_index, mask } => write!(
+                formatter,
+                "path {path_index} contains unknown path flags 0x{mask:08X}"
             ),
         }
     }
@@ -398,6 +455,8 @@ fn convert_path(
     source_name_cache: &mut Vec<SourceNameCacheEntry>,
     target_name_cache: &mut Vec<TargetNameCacheEntry>,
 ) -> Result<CcdPath, CcdQueryError> {
+    validate_legacy_path_flags(path_index, path.flags)?;
+
     // SAFETY: The query deliberately omits QDC_VIRTUAL_MODE_AWARE, so the
     // documented active union member for each path endpoint is `modeInfoIdx`.
     let source_mode_index = unsafe { path.sourceInfo.Anonymous.modeInfoIdx };
@@ -467,6 +526,25 @@ fn convert_path(
         target_mode,
         flags: path.flags,
     })
+}
+
+fn validate_legacy_path_flags(
+    path_index: usize,
+    flags: u32,
+) -> Result<(), CcdQueryError> {
+    let unknown_path_flags = flags & !DISPLAYCONFIG_PATH_VALID_FLAGS;
+    if unknown_path_flags != 0 {
+        return Err(CcdQueryError::UnknownPathFlags {
+            path_index,
+            mask: unknown_path_flags,
+        });
+    }
+    if flags & DISPLAYCONFIG_PATH_SUPPORT_VIRTUAL_MODE != 0 {
+        // QDC_VIRTUAL_MODE_AWARE is not part of this CLI's current query. Do not
+        // reinterpret the virtual-aware bitfield union as the legacy modeInfoIdx.
+        return Err(CcdQueryError::VirtualModeLayoutUnqualified { path_index });
+    }
+    Ok(())
 }
 
 #[derive(Clone)]
@@ -835,5 +913,71 @@ impl From<DISPLAYCONFIG_RATIONAL> for Rational {
             numerator: value.Numerator,
             denominator: value.Denominator,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn legacy_path_flags_reject_virtual_aware_union_layout() {
+        assert!(matches!(
+            validate_legacy_path_flags(3, DISPLAYCONFIG_PATH_SUPPORT_VIRTUAL_MODE),
+            Err(CcdQueryError::VirtualModeLayoutUnqualified { path_index: 3 })
+        ));
+    }
+
+    #[test]
+    fn legacy_path_flags_reject_unknown_bits_before_union_read() {
+        let unknown = 1_u32 << 31;
+        assert!(matches!(
+            validate_legacy_path_flags(4, unknown),
+            Err(CcdQueryError::UnknownPathFlags {
+                path_index: 4,
+                mask
+            }) if mask == unknown
+        ));
+    }
+
+    #[test]
+    fn query_failure_class_preserves_access_and_bound_evidence() {
+        let access_denied = CcdQueryError::Win32 {
+            operation: "QueryDisplayConfig",
+            code: ERROR_ACCESS_DENIED.0,
+        };
+        assert_eq!(
+            access_denied.failure_class(),
+            CcdQueryFailureClass::ConsoleOrDesktopAccessDenied
+        );
+        assert_eq!(
+            CcdQueryError::CountLimit {
+                path_count: MAX_PATH_COUNT + 1,
+                mode_count: 0,
+            }
+            .failure_class(),
+            CcdQueryFailureClass::BoundExceeded
+        );
+    }
+
+    #[test]
+    fn query_failure_class_preserves_race_and_unsupported_evidence() {
+        assert_eq!(
+            CcdQueryError::BufferChangedRepeatedly.failure_class(),
+            CcdQueryFailureClass::TopologyRace
+        );
+        assert_eq!(
+            CcdQueryError::VirtualModeLayoutUnqualified { path_index: 0 }
+                .failure_class(),
+            CcdQueryFailureClass::UnsupportedNativeEvidence
+        );
+        assert_eq!(
+            CcdQueryError::UnknownPathFlags {
+                path_index: 0,
+                mask: 1 << 31,
+            }
+            .failure_class(),
+            CcdQueryFailureClass::UnsupportedNativeEvidence
+        );
     }
 }

@@ -5,6 +5,7 @@ use windows::{
     Win32::Graphics::Gdi::{
         EnumDisplayDevicesW, EnumDisplaySettingsExW, DEVMODEW, DISPLAY_DEVICEW,
         DISPLAY_DEVICE_ATTACHED_TO_DESKTOP, DISPLAY_DEVICE_PRIMARY_DEVICE,
+        DISPLAY_DEVICE_MIRRORING_DRIVER, DISPLAY_DEVICE_RDPUDD, DISPLAY_DEVICE_REMOTE,
         DM_BITSPERPEL, DM_DISPLAYFIXEDOUTPUT, DM_DISPLAYFLAGS, DM_DISPLAYFREQUENCY,
         DM_DISPLAYORIENTATION, DM_PELSHEIGHT, DM_PELSWIDTH, DM_POSITION,
         ENUM_CURRENT_SETTINGS, ENUM_DISPLAY_SETTINGS_FLAGS, ENUM_DISPLAY_SETTINGS_MODE,
@@ -66,6 +67,10 @@ pub struct DisplayDeviceInfo {
     pub device_key: String,
     pub is_primary: bool,
     pub is_attached_to_desktop: bool,
+    pub state_flags_raw: u32,
+    pub mirroring_driver_marker: bool,
+    pub remote_sdk_marker: bool,
+    pub rdpudd_sdk_marker: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -406,6 +411,14 @@ impl DisplayDeviceInfo {
             is_attached_to_desktop: device
                 .StateFlags
                 .contains(DISPLAY_DEVICE_ATTACHED_TO_DESKTOP),
+            state_flags_raw: device.StateFlags.0,
+            // These are positive SDK markers only. Their absence does not prove
+            // that the caller is the sole local console session.
+            mirroring_driver_marker: device
+                .StateFlags
+                .contains(DISPLAY_DEVICE_MIRRORING_DRIVER),
+            remote_sdk_marker: device.StateFlags.contains(DISPLAY_DEVICE_REMOTE),
+            rdpudd_sdk_marker: device.StateFlags.contains(DISPLAY_DEVICE_RDPUDD),
         }
     }
 }
