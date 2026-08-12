@@ -2409,8 +2409,7 @@ mod tests {
         assert_eq!(report.disposition, Disposition::NotAssessable);
 
         let mut wrong_location_observation = exact_observation(1);
-        let ObservationCapture::SampledStable(observation_report) =
-            &mut wrong_location_observation
+        let ObservationCapture::SampledStable(observation_report) = &mut wrong_location_observation
         else {
             unreachable!();
         };

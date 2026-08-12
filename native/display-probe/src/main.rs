@@ -1131,11 +1131,12 @@ fn print_candidate_groups(
 fn print_candidate_summary(indent: &str, summary: candidate::CandidateSummary) {
     println!(
         concat!(
-            "{indent}Summary: Records={} Complete={} Incomplete={} ",
+            "{}Summary: Records={} Complete={} Incomplete={} ",
             "ExactDuplicateGroups={} ExactDuplicateRecords={} ",
             "ProjectionCollisionRecords={} LabUnqualified={} HardExcluded={} ",
             "ProductAllowed={} SelectionTokens={}"
         ),
+        indent,
         summary.records,
         summary.complete_records,
         summary.incomplete_records,
