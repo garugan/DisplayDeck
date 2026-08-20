@@ -842,7 +842,7 @@ Get-Content -Raw $capture
 
 期待結果は`captured: ...`、`valid: ...`、`valid static vector: ...`です。JSONは`captureStatus: CAPTURED`、`probeAuthorization: READ_ONLY_AUTHORIZED`、`result: ACCEPTANCE_NOT_AUTHORIZED`または明示的なrejectになり、acceptance resultは生成しません。raw captureはEvidence Owner、redaction、retention、bundle locationを承認するまでGitへ追加しません。
 
-2026-08-21にWindows 10 `10.0.19045`の最初のsampleがvalidatorを通過しました。投稿されたraw値から導出した非識別summaryは、tick sample span=`109 ms`、UTC span=`98.326 ms`、2つのpredicted bootの差=`10.674 ms`、WMI boot時刻とpredicted bootの絶対差=`約40.019..40.030 s`です。これは`FIRST_WINDOWS_CAPTURE_REPORTED_VALID`であり、raw artifact hash、formal bundle、複数boot/resume sample、tolerance approvalはまだありません。次は[`D08 Windows read-only capture procedure`](tools/displaydeck-evidence/d08-windows-readonly-capture-procedure.md)の同一active session 5回batchを採取します。
+2026-08-21にWindows 10 `10.0.19045`の最初のsampleがvalidatorを通過しました。投稿されたraw値から導出した非識別summaryは、tick sample span=`109 ms`、UTC span=`98.326 ms`、2つのpredicted bootの差=`10.674 ms`、WMI boot時刻とpredicted bootの絶対差=`約40.019..40.030 s`です。続く同一active session 5回batchもcapture/validatorが5/5で通過しました。statusは`ACTIVE_BATCH_5_OF_5_REPORTED_VALID / IDENTITY_METRICS_REVIEW_PENDING`であり、raw artifact hash、formal bundle、sleep/restart sample、tolerance approvalはまだありません。
 
 ```powershell
 git pull
@@ -863,7 +863,33 @@ New-Item -ItemType Directory -Path $batch -ErrorAction Stop | Out-Null
 Write-Output "batch: $batch"
 ```
 
-今回の限定authorizationは、full-byte fixture、expected SHA-256、semantic manifest、artifact index、aggregate hashの生成・検証、D07 controlled filesystem/DACL evidence、D08 read-only Windows evidence、formal G1A evidence bundleの作成だけです。Phase 2A product/runtime code、Tauri/watchdog/worker統合、runtime serializer/WAL file、fault harness、display mutationは引き続き未許可です。D07は`DIRECTORY_ANCHOR_UNPROVEN / NO_GO_RECORDED`、D08は`READ_ONLY_AUTHORIZED / FIRST_WINDOWS_CAPTURE_REPORTED_VALID / TOLERANCE_EVIDENCE_PENDING`、G1Aはtemplate/validatorのみでformal result evidenceはpendingです。
+同じPowerShell sessionで5件のboot tupleとtick/UTC差を一覧化し、件数・tuple一意性・resultを検査します。
+
+```powershell
+$rows = Get-ChildItem "$batch\sample-*.json" -File | Sort-Object Name | ForEach-Object {
+    $j = Get-Content -Raw $_.FullName | ConvertFrom-Json
+    [Int64]$t0 = [Convert]::ToUInt64($j.tickBeforeMs, 16)
+    [Int64]$t1 = [Convert]::ToUInt64($j.tickAfterMs, 16)
+    [Int64]$u0 = [Convert]::ToUInt64($j.utcBeforeFileTime, 16)
+    [Int64]$u1 = [Convert]::ToUInt64($j.utcAfterFileTime, 16)
+    [PSCustomObject]@{
+        Sample = $_.Name
+        BootTime = $j.lastBootUpTimeRaw
+        Version = $j.versionRaw
+        Build = $j.buildNumberRaw
+        TickSpanMs = $t1 - $t0
+        UtcSpanMs = [Math]::Round(($u1 - $u0) / 10000.0, 3)
+        PredictedBootSpreadMs = [Math]::Round([Math]::Abs((($u1 - ($t1 * 10000)) - ($u0 - ($t0 * 10000))) / 10000.0), 3)
+        Result = $j.result
+    }
+}
+$rows | Format-Table -AutoSize
+if (@($rows).Count -ne 5) { throw "Expected 5 D08 samples" }
+if (@($rows | Select-Object BootTime, Version, Build -Unique).Count -ne 1) { throw "D08 boot tuple changed within active batch" }
+if (@($rows | Where-Object Result -ne "ACCEPTANCE_NOT_AUTHORIZED").Count -ne 0) { throw "Unexpected D08 result" }
+```
+
+今回の限定authorizationは、full-byte fixture、expected SHA-256、semantic manifest、artifact index、aggregate hashの生成・検証、D07 controlled filesystem/DACL evidence、D08 read-only Windows evidence、formal G1A evidence bundleの作成だけです。Phase 2A product/runtime code、Tauri/watchdog/worker統合、runtime serializer/WAL file、fault harness、display mutationは引き続き未許可です。D07は`DIRECTORY_ANCHOR_UNPROVEN / NO_GO_RECORDED`、D08は`READ_ONLY_AUTHORIZED / ACTIVE_BATCH_5_OF_5_REPORTED_VALID / IDENTITY_METRICS_REVIEW_PENDING / TOLERANCE_EVIDENCE_PENDING`、G1Aはtemplate/validatorのみでformal result evidenceはpendingです。
 
 | Decision | 人間が決める内容 | 現在のrecommended candidate | Status |
 | --- | --- | --- | --- |
@@ -874,7 +900,7 @@ Write-Output "batch: $batch"
 | `DD-FR-002-D05` | machine recordのruntime writer | SYSTEM creator/maintenance writerとinstaller-designated single runtime owner SIDに限定 | `POLICY_APPROVED / SPEC_CANDIDATE / BYTE_ARTIFACT_GENERATED / INDEPENDENT_STATIC_REVIEW_CLEAN / HUMAN_FREEZE_APPROVAL_PENDING` |
 | `DD-FR-002-D06` | fresh MachineActor provision | separate installer provision recordでcreate前intentとactual file-ID checkpointをdurable化し、最初のvalid maintenance intent / activeを経てowner-bound ordinary cleanへ進む | `POLICY_APPROVED / SPEC_CANDIDATE / BYTE_ARTIFACT_GENERATED / INDEPENDENT_STATIC_REVIEW_CLEAN / HUMAN_FREEZE_APPROVAL_PENDING` |
 | `DD-FR-002-D07` | directory anchor / reparse proof | documented handle/APIでrace-resistantに証明できたcellだけadmit。現時点は未証明のためNo-Go | `POLICY_APPROVED / SPEC_CANDIDATE / DIRECTORY_ANCHOR_UNPROVEN / NO_GO_RECORDED / HUMAN_FREEZE_APPROVAL_PENDING` |
-| `DD-FR-002-D08` | boot identity | stable WMI boot UTC/version/buildだけをhashし、tick/UTC cross-checkは別acceptance evidenceとして実機でtoleranceをfreeze | `POLICY_APPROVED / SPEC_CANDIDATE / READ_ONLY_AUTHORIZED / FIRST_WINDOWS_CAPTURE_REPORTED_VALID / TOLERANCE_EVIDENCE_PENDING / HUMAN_FREEZE_APPROVAL_PENDING` |
+| `DD-FR-002-D08` | boot identity | stable WMI boot UTC/version/buildだけをhashし、tick/UTC cross-checkは別acceptance evidenceとして実機でtoleranceをfreeze | `POLICY_APPROVED / SPEC_CANDIDATE / READ_ONLY_AUTHORIZED / ACTIVE_BATCH_5_OF_5_REPORTED_VALID / IDENTITY_METRICS_REVIEW_PENDING / TOLERANCE_EVIDENCE_PENDING / HUMAN_FREEZE_APPROVAL_PENDING` |
 
 D01〜D08の方針承認と今回の統合freeze-evidence authorizationは、full-byte artifact生成を許可しますが、`FROZEN`、artifact approval、Phase 2A authorizationではありません。CANDIDATE-04のfull-byte生成と独立static reviewは完了しましたが、D07/D08/G1A evidence、Reviewer/Approver、immutable approval referenceが揃うまでcode値やDACL候補の実装正本にしません。D05によりV1のmutation writerはinstaller-bound single runtime ownerだけで、別ownerへの変更はelevated maintenance/rebindを必要とします。
 

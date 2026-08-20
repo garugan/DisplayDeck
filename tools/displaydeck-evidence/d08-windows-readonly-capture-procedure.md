@@ -65,6 +65,33 @@ transitions. Wall-clock changes and WMI failure injection remain outside this
 read-only lane and require separate authorization. No sample count or observed
 maximum is itself an approved production threshold.
 
+After the batch, list the five boot tuples and bounded timing differences. The
+underscore variable is `$_`; `$*` is not the current pipeline item.
+
+```powershell
+$rows = Get-ChildItem "$batch\sample-*.json" -File | Sort-Object Name | ForEach-Object {
+    $j = Get-Content -Raw $_.FullName | ConvertFrom-Json
+    [Int64]$t0 = [Convert]::ToUInt64($j.tickBeforeMs, 16)
+    [Int64]$t1 = [Convert]::ToUInt64($j.tickAfterMs, 16)
+    [Int64]$u0 = [Convert]::ToUInt64($j.utcBeforeFileTime, 16)
+    [Int64]$u1 = [Convert]::ToUInt64($j.utcAfterFileTime, 16)
+    [PSCustomObject]@{
+        Sample = $_.Name
+        BootTime = $j.lastBootUpTimeRaw
+        Version = $j.versionRaw
+        Build = $j.buildNumberRaw
+        TickSpanMs = $t1 - $t0
+        UtcSpanMs = [Math]::Round(($u1 - $u0) / 10000.0, 3)
+        PredictedBootSpreadMs = [Math]::Round([Math]::Abs((($u1 - ($t1 * 10000)) - ($u0 - ($t0 * 10000))) / 10000.0), 3)
+        Result = $j.result
+    }
+}
+$rows | Format-Table -AutoSize
+if (@($rows).Count -ne 5) { throw "Expected 5 D08 samples" }
+if (@($rows | Select-Object BootTime, Version, Build -Unique).Count -ne 1) { throw "D08 boot tuple changed within active batch" }
+if (@($rows | Where-Object Result -ne "ACCEPTANCE_NOT_AUTHORIZED").Count -ne 0) { throw "Unexpected D08 result" }
+```
+
 The capture document is validated offline with
 `validate_d08_readonly_capture.py`. Thresholds remain `UNSET` in every
 document under this authorization. A completed Windows sample can only state
