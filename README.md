@@ -806,6 +806,12 @@ Windows PowerShellでrepository rootへ移動し、次を上から順に実行�
 ```powershell
 Start-Transcript -Path step9-windows-validation.txt -Force
 
+# .gitattributes追加前にcheckoutしたCRLF版を、hash対象の正本bytesへ戻す。
+# fixturesに意図的なlocal変更がないことを確認してから実行する。
+git status --short -- fixtures
+git restore --source=HEAD --worktree -- fixtures
+git status --short -- fixtures
+
 py -3 -B tools/dd-fr-002-freeze/dd_fr_002_freeze.py verify
 py -3 -B tools/displaydeck-evidence/validate_d07_no_go.py tools/displaydeck-evidence/d07-no-go-predicate.template.json
 py -3 -B tools/displaydeck-evidence/validate_d07_no_go.py --self-test
@@ -818,7 +824,7 @@ git diff --check
 Stop-Transcript
 ```
 
-期待結果は`verification=pass vectors=590 side-effects=0`、各templateの`valid`、各`self-test: pass`で、`git diff --check`は無出力です。途中で1件でも失敗した場合はそこで検証失敗とします。この手順はCandidate 04、D07 No-Go、D08 static known-answer、G1A templateを検証するもので、D08 runtime captureを実施したり`FROZEN`を承認したりするものではありません。
+2回目の`git status --short -- fixtures`、`git diff --check`は無出力であることを確認します。ほかの期待結果は`verification=pass vectors=590 side-effects=0`、各templateの`valid`、各`self-test: pass`です。途中で1件でも失敗した場合はそこで検証失敗とします。この手順はCandidate 04、D07 No-Go、D08 static known-answer、G1A templateを検証するもので、D08 runtime captureを実施したり`FROZEN`を承認したりするものではありません。
 
 今回の限定authorizationは、full-byte fixture、expected SHA-256、semantic manifest、artifact index、aggregate hashの生成・検証、D07 controlled filesystem/DACL evidence、D08 read-only Windows evidence、formal G1A evidence bundleの作成だけです。Phase 2A product/runtime code、Tauri/watchdog/worker統合、runtime serializer/WAL file、fault harness、display mutationは引き続き未許可です。D07は`DIRECTORY_ANCHOR_UNPROVEN / NO_GO_RECORDED`、D08は`READ_ONLY_AUTHORIZED / WINDOWS_CAPTURE_NOT_RUN`、G1Aはtemplate/validatorのみでformal result evidenceはpendingです。
 

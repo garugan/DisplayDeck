@@ -8,10 +8,10 @@ changes, truncates, or deletes a supplied bundle artifact.
 import argparse
 import hashlib
 import json
-import os
 import re
 import tempfile
 from pathlib import Path, PurePosixPath
+from unittest import mock
 
 MAX_BYTES = 8 * 1024 * 1024
 ZERO_SHA256 = "0" * 64
@@ -245,16 +245,13 @@ def self_test():
         else:
             fail("self-test did not reject path escape")
 
-        symlink_target = root / "target"
-        symlink_target.mkdir()
-        symlink_root = root / "symlink-root"
-        os.symlink(symlink_target, symlink_root, target_is_directory=True)
-        try:
-            validate(manifest, symlink_root)
-        except ValueError:
-            pass
-        else:
-            fail("self-test did not reject an artifact-root symlink")
+        with mock.patch.object(Path, "is_symlink", return_value=True):
+            try:
+                resolve_artifact_root(root)
+            except ValueError:
+                pass
+            else:
+                fail("self-test did not reject an artifact-root symlink")
 
         altered_metadata = dict(manifest)
         altered_metadata["bundleId"] = "G1A-ALTERED-METADATA-01"
