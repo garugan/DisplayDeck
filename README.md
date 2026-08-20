@@ -844,6 +844,25 @@ Get-Content -Raw $capture
 
 2026-08-21にWindows 10 `10.0.19045`の最初のsampleがvalidatorを通過しました。投稿されたraw値から導出した非識別summaryは、tick sample span=`109 ms`、UTC span=`98.326 ms`、2つのpredicted bootの差=`10.674 ms`、WMI boot時刻とpredicted bootの絶対差=`約40.019..40.030 s`です。これは`FIRST_WINDOWS_CAPTURE_REPORTED_VALID`であり、raw artifact hash、formal bundle、複数boot/resume sample、tolerance approvalはまだありません。次は[`D08 Windows read-only capture procedure`](tools/displaydeck-evidence/d08-windows-readonly-capture-procedure.md)の同一active session 5回batchを採取します。
 
+```powershell
+git pull
+
+$label = "active"
+$batch = Join-Path $env:TEMP ("displaydeck-d08-{0}-{1}" -f $label, (Get-Date -Format "yyyyMMdd-HHmmss"))
+New-Item -ItemType Directory -Path $batch -ErrorAction Stop | Out-Null
+
+1..5 | ForEach-Object {
+    $capture = Join-Path $batch ("sample-{0:d2}.json" -f $_)
+    powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools\displaydeck-evidence\capture_d08_readonly.ps1 -OutputPath $capture
+    if ($LASTEXITCODE -ne 0) { throw "D08 capture failed: $LASTEXITCODE" }
+    py -3 -B tools\displaydeck-evidence\validate_d08_readonly_capture.py $capture
+    if ($LASTEXITCODE -ne 0) { throw "D08 validation failed: $LASTEXITCODE" }
+    Start-Sleep -Milliseconds 500
+}
+
+Write-Output "batch: $batch"
+```
+
 今回の限定authorizationは、full-byte fixture、expected SHA-256、semantic manifest、artifact index、aggregate hashの生成・検証、D07 controlled filesystem/DACL evidence、D08 read-only Windows evidence、formal G1A evidence bundleの作成だけです。Phase 2A product/runtime code、Tauri/watchdog/worker統合、runtime serializer/WAL file、fault harness、display mutationは引き続き未許可です。D07は`DIRECTORY_ANCHOR_UNPROVEN / NO_GO_RECORDED`、D08は`READ_ONLY_AUTHORIZED / FIRST_WINDOWS_CAPTURE_REPORTED_VALID / TOLERANCE_EVIDENCE_PENDING`、G1Aはtemplate/validatorのみでformal result evidenceはpendingです。
 
 | Decision | 人間が決める内容 | 現在のrecommended candidate | Status |
