@@ -8,8 +8,11 @@ overwrite an existing file. It does not create same-boot acceptance authority.
 The first reported Windows 10 `10.0.19045` sample passed the capture validator.
 Its derived, non-identifying timing summary was: sample tick span `109 ms`, UTC
 span `98.326 ms`, predicted-boot spread `10.674 ms`, and absolute WMI-to-
-predicted-boot deltas approximately `40.019..40.030 s`. The raw capture remains
-outside Git, so this is not yet a formal bundled artifact or a tolerance freeze.
+predicted-boot deltas approximately `40.019..40.030 s`. A subsequent active-
+session batch passed capture and validation 5/5 with one boot tuple; its maxima
+were tick span `63 ms`, UTC span `57.072 ms`, and predicted-boot spread
+`9.562 ms`. The raw captures remain outside Git, so this is not yet a formal
+bundled artifact or a tolerance freeze.
 
 On an authorized Windows evidence host, the capture operator records the
 following order in the D08 capture schema:
@@ -91,6 +94,33 @@ if (@($rows).Count -ne 5) { throw "Expected 5 D08 samples" }
 if (@($rows | Select-Object BootTime, Version, Build -Unique).Count -ne 1) { throw "D08 boot tuple changed within active batch" }
 if (@($rows | Where-Object Result -ne "ACCEPTANCE_NOT_AUTHORIZED").Count -ne 0) { throw "Unexpected D08 result" }
 ```
+
+The next bounded scenario is a five-sample batch after an operator-controlled
+sleep/resume. Preserve the active batch path before sleeping; the helper does
+not trigger the power transition:
+
+```powershell
+$activeBatch = $batch
+
+# The operator manually sleeps and resumes Windows before continuing.
+$label = "sleep-resume"
+$batch = Join-Path $env:TEMP ("displaydeck-d08-{0}-{1}" -f $label, (Get-Date -Format "yyyyMMdd-HHmmss"))
+New-Item -ItemType Directory -Path $batch -ErrorAction Stop | Out-Null
+1..5 | ForEach-Object {
+    $capture = Join-Path $batch ("sample-{0:d2}.json" -f $_)
+    powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools\displaydeck-evidence\capture_d08_readonly.ps1 -OutputPath $capture
+    if ($LASTEXITCODE -ne 0) { throw "D08 capture failed: $LASTEXITCODE" }
+    py -3 -B tools\displaydeck-evidence\validate_d08_readonly_capture.py $capture
+    if ($LASTEXITCODE -ne 0) { throw "D08 validation failed: $LASTEXITCODE" }
+    Start-Sleep -Milliseconds 500
+}
+Write-Output "active batch: $activeBatch"
+Write-Output "sleep/resume batch: $batch"
+```
+
+Run the same aggregation block against the new `$batch`. Keep restart, Fast
+Startup, and hibernate evidence separate; no observed maximum authorizes a
+production threshold.
 
 The capture document is validated offline with
 `validate_d08_readonly_capture.py`. Thresholds remain `UNSET` in every
