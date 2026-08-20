@@ -1,0 +1,1 @@
+{"schema":"BootIdV1-static-known-answer","scope":"STATIC_PREIMAGE_ONLY","lastBootUtcFileTime":"01daff710e784000","versionMajor":"0000000a","versionMinor":"00000000","versionBuild":"0000664e","expectedBootIdSha256":"756b8db85c9d94be3acd59523e7ac4e535094b29d806b48d00af01614476a20d","runtimeAcceptance":"UNSET_EVIDENCE_PENDING"}

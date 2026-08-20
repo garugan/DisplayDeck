@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "D08-READONLY-CAPTURE-V1",
+  "captureStatus": "TEMPLATE",
+  "probeAuthorization": "READ_ONLY_AUTHORIZED",
+  "lastBootUpTimeRaw": "UNSET",
+  "versionRaw": "UNSET",
+  "buildNumberRaw": "UNSET",
+  "tickBeforeMs": "UNSET",
+  "utcBeforeFileTime": "UNSET",
+  "tickAfterMs": "UNSET",
+  "utcAfterFileTime": "UNSET",
+  "maxBootIdentitySampleSpanMs": "UNSET",
+  "maxBootUtcDelta100ns": "UNSET",
+  "clockJumpRule": "UNSET",
+  "result": "PENDING"
+}

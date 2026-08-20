@@ -1,0 +1,22 @@
+{
+  "schemaVersion": "D07-NO-GO-PREDICATE-V1",
+  "evidenceStatus": "NO_GO_RECORDED",
+  "directoryAnchorClassification": "DIRECTORY_ANCHOR_UNPROVEN",
+  "windowsProbeStatus": "NOT_RUN_DIRECTORY_ANCHOR_UNPROVEN",
+  "requiredProofs": {
+    "raceResistantDirectoryAnchorAlgorithm": "UNPROVEN",
+    "reparsePointRejection": "UNPROVEN",
+    "fileIdDaclAttributeReadback": "UNPROVEN",
+    "localFixedNtfsAndPersistentAcls": "UNPROVEN"
+  },
+  "requiredSideEffects": {
+    "provisionCreate": 0,
+    "provisionStorageWrite": 0,
+    "storageWrite": 0,
+    "fileDelete": 0,
+    "fileTruncate": 0,
+    "displayMutation": 0,
+    "processLaunch": 0
+  },
+  "decision": "NO_GO"
+}

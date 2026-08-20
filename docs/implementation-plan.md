@@ -1,7 +1,7 @@
 # DisplayDeck 実装計画
 
-最終更新: 2026-08-05  
-状態: 計画のみ。Phase 0の再レビュー未完了。実装・技術スパイクは開始不可。
+最終更新: 2026-08-13
+状態: CLI milestoneとしてのexploratory read-only Step 1〜8は実装・Windows実機観測済み。ただし、これは承認済みPhase 1A execution recordまたはclosure evidenceではない。正式なPhase 1A closure / G1A reviewとPhase 2A専用承認は未完了であり、Phase 2A product/runtime code、file operation、serializer、fault harnessは開始不可。今回の統合freeze-evidence authorizationで許可されたbounded fixture/hash/index生成とD07/D08 evidence laneは、このPhase 2A実装禁止とは別scopeである。
 
 ## 1. 実行ルール
 
@@ -67,10 +67,13 @@ Phase 2Aも次のseparate recordを開始前にfreezeする。Phase 1A/1B record
 | Filesystem/volume/security product matrix | 未決定 |
 | Named-object/file/DACL exact call allowlist | 未決定 |
 | Fault/crash/power-loss injection allowlist | 未決定 |
-| DD-FR-002 wire/serialization freeze artifact ID | 未決定 |
-| DecisionJournalV1 serialization test-vector ID | 未決定 |
-| MachineActorRecordV1 golden-vector ID | 未決定 |
-| Worker one-shot negative-test oracle version | 未決定 |
+| DD-FR-002 wire/serialization freeze artifact ID | active profile=`DD-FR-002-WIRE-PROFILE-V1-CANDIDATE-04`。CANDIDATE-03は77 vectorのbytes/hash/index自己整合後もD02/MAP/D03/DJ/MAR coverage gapsにより独立review不合格・freeze不可。CANDIDATE-04は590 vectorを生成し、self-verify、別directoryへのbyte-for-byte再生成、全体独立static reviewがCLEAN。`DD-FR-002-D04-C04-RESOLUTION-PACKAGE-01`は2026-08-13に一括承認済み。`DESIGN_DIRECTION_APPROVED / FULL_BYTES_GENERATED / SHA256_COMPUTED / FULL_INDEPENDENT_STATIC_REVIEW_CLEAN / HUMAN_FREEZE_APPROVAL_PENDING` |
+| DecisionJournalV1 serialization test-vector ID | spec label `DJV1-VECTORS-V1-CANDIDATE-04-SPEC`。`FULL_BYTES_GENERATED / SHA256_COMPUTED / FULL_INDEPENDENT_STATIC_REVIEW_CLEAN / HUMAN_FREEZE_APPROVAL_PENDING` |
+| MachineActorRecordV1 golden-vector ID | spec label `MARV1-VECTORS-V1-CANDIDATE-04-SPEC`。`FULL_BYTES_GENERATED / SHA256_COMPUTED / FULL_INDEPENDENT_STATIC_REVIEW_CLEAN / HUMAN_FREEZE_APPROVAL_PENDING` |
+| MachineActorProvisionRecordV1 vector ID | spec label `MAPRV1-VECTORS-V1-CANDIDATE-04-SPEC`。`FULL_BYTES_GENERATED / SHA256_COMPUTED / FULL_INDEPENDENT_STATIC_REVIEW_CLEAN / HUMAN_FREEZE_APPROVAL_PENDING` |
+| Worker one-shot negative-test oracle version | spec label `WORKER-ONESHOT-ORACLE-V1-CANDIDATE-04-SPEC`。`CODE_NOT_CREATED / FULL_BYTES_GENERATED / SHA256_COMPUTED / FULL_INDEPENDENT_STATIC_REVIEW_CLEAN / HUMAN_FREEZE_APPROVAL_PENDING` |
+| DD-FR-002 human decision package | D01〜D06=`POLICY_APPROVED / SPEC_CANDIDATE / BYTE_ARTIFACT_GENERATED / INDEPENDENT_STATIC_REVIEW_CLEAN / HUMAN_FREEZE_APPROVAL_PENDING`、D07=`POLICY_APPROVED / SPEC_CANDIDATE / DIRECTORY_ANCHOR_UNPROVEN / NO_GO_RECORDED / HUMAN_FREEZE_APPROVAL_PENDING`、D08=`POLICY_APPROVED / SPEC_CANDIDATE / READ_ONLY_AUTHORIZED / WINDOWS_CAPTURE_NOT_RUN / HUMAN_FREEZE_APPROVAL_PENDING`。G1A=`TEMPLATE_AND_VALIDATOR_READY / FORMAL_RESULT_EVIDENCE_PENDING`。package aggregate=`DESIGN_DIRECTION_APPROVED / FULL_BYTES_GENERATED / SHA256_COMPUTED / FULL_INDEPENDENT_STATIC_REVIEW_CLEAN / HUMAN_FREEZE_APPROVAL_PENDING` |
+| Machine runtime owner / provision model | SYSTEM creator/maintenance + installer-designated single runtime owner + separate provision record方針承認済み。DACL mask/orderはdocument candidate、full-byte/Windows evidence pending |
 | Evidence fields/redaction/retention/location | 未決定 |
 | Operator | 未決定 |
 | Evidence Owner | 未決定 |
@@ -294,6 +297,24 @@ spike-only watchdog harnessでありproductへ未統合のため一般環境で�
 
 このfreezeはPhase 1A blockerではないが、Phase 2Aのcode、file、serializer、fixture、fault harnessを1 byteでも作る前にversion付きartifactとgolden vectorを固定し、Recovery/Storage/Windows Security reviewerの短いdesign checkを通す。Phase 2A実行中に同じschemaVersionの意味を変えない。
 
+**履歴（2026-08-13）**: `DD-FR-002-D01..D08`のrecommended candidateは設計方針として承認され、当時は文書上のfreeze candidate作成だけが許可された。これはwire artifact freeze、fixture作成/実行、Phase 2A実装、display mutationの許可ではなかった。
+
+**現況（CANDIDATE-04 artifact generated / static review clean）**: active profile `DD-FR-002-WIRE-PROFILE-V1-CANDIDATE-04`について、full-byte fixture、expected SHA-256、semantic manifest、artifact index、aggregate hashの590-vector生成と検証、および全体独立static reviewが完了した。CANDIDATE-03は77 vectorのbytes/hash/index自己整合後もD02 canonical-source、D03/SID binding、MAP resume/cleanup、DJ/MAR coverage gapsで独立review不合格となった履歴候補であり、freezeしない。CANDIDATE-04のstatusは`FULL_BYTES_GENERATED / SHA256_COMPUTED / FULL_INDEPENDENT_STATIC_REVIEW_CLEAN / HUMAN_FREEZE_APPROVAL_PENDING`であり、Phase 2A product/runtime code、watchdog/worker/Tauri integration、runtime serializer/WAL file、fault harness、display mutationの許可ではない。D07は`DIRECTORY_ANCHOR_UNPROVEN / NO_GO_RECORDED`、D08は`READ_ONLY_AUTHORIZED / WINDOWS_CAPTURE_NOT_RUN`、G1Aはformal result evidence pendingである。Reviewer/Approver/immutable approval referenceが残る限り`FROZEN`またはPhase 2A executableへ変更しない。
+
+1. `DecisionJournalV1`のheader / slot A / slot Bの全offset、整数幅、endianness、enum値、absence表現、exact file length、checksum coverageとself-field規則。
+2. `MachineActorRecordV1`のdual-slot publication形式、13 stateのwire値、canonical field order、optional group表現、SID / ID / process identity / operation intentのencodingと上限、checksumとexact file length。
+   D06採用candidateのseparate `MachineActorProvisionRecordV1` create intent / post-create checkpoint / machine-state link / terminal retentionも同じfreeze packageへ含める。
+3. operational WALの`ownerWalState`をmachine recordへexact linkするためのversioned wire enum。UI projectionや自由文字列を使用しない。
+4. first baseline、Keep、全13 machine state、unknown/reserved/trailing/short/torn/conflictのfull-byte golden / negative vectorsとSHA-256。
+5. one-shot workerのsame-process instance rotate、PID reuse、old-process未exit、role/operation/nonce mismatchを拒否するdeterministic oracle。
+6. create/open/access/share/flush/reopen、DACL、reparse/hardlink/sparse、eligible filesystem/volumeのexact Windows call/flag profile。
+7. `DD-FR-002-D01..D08`の各decisionについて、採用案/却下案、Security/Recovery/Product owner、immutable approval referenceを記録する。未決定をartifact hashで代用しない。
+8. artifact hash、Reviewer、Approver、immutable approval reference、およびPhase 2A専用authorization。
+
+exploratory Step 8の55 testsとWindows実機assessmentはG1A review入力の一部だが、bounded formal evidence bundle、approved CCD surface、exact environment/session manifestを欠くため、これだけでPhase 1A closureまたは上記freezeを成立させない。
+
+pre-code cross-checkと2026-08-13の方針承認から、19.7に`OwnerWalLinkStateV1`、critical evidence tuple、tagged completion、SYSTEM/single-owner DACL、`MachineActorProvisionRecordV1`、post-create actual file-ID checkpoint、JSON/SID/boot identity representationを統合し、19.8にapproved-policy decision recordを置く。`JOURNAL_CORRUPT_OR_UNKNOWN`をclassification、valid writerの`FAILED_CLOSED`をterminalとして分離する方針は承認済みである。一方、full-byte vector/hash、D07 directory-anchor Windows evidence、D08 cross-check tolerance、artifact reviewer/approverは存在しないため、candidate code/offset/DACL表を実装正本として使用しない。
+
 `DecisionJournalV1` wire freeze:
 
 - integer width、byte order、bool/enum表現、UUID/digest長、string/absence marker
@@ -337,7 +358,7 @@ Tauri非依存のRust watchdog/worker prototypeで、`KEEP_AUTHORIZED` decision-
 - worker hang/late exit/PID reuse/OpenProcess denialで並行operationを出さない。
 - confirm/revert/timeout/double launch/stale sessionがCAS/fencingで解決する。
 - deadline前/同値/後の`KEEP_AUTHORIZED` entryと、authorization後のslot write/flush/readback delayを分離し、deadline後entryは拒否、期限内entry後のvalid terminal publicationは期限後でも成立する。
-- `DecisionJournalV1`のA/B、partial/torn/short write、generation gap/previous mismatch/conflict、flush/readback/response前crash、outcome unknown、AV/filter/power-loss相当の全windowでKeep/Revert/FAILED_CLOSEDが一意になる。
+- `DecisionJournalV1`のA/B、partial/torn/short write、generation gap/previous mismatch/conflict、flush/readback/response前crash、outcome unknown、AV/filter/power-loss相当simulationの全windowでKeep/Revert/FAILED_CLOSEDが一意になる。simulationとsupport-cell別のphysical power/reboot evidenceを混同しない。
 - `MoveFileExW`/`ReplaceFileW`をdeadline CASとして扱わず、`FlushFileBuffers`/`FILE_FLAG_WRITE_THROUGH`単独をatomicity/CAS証明にしない。fixed slots + generation + checksums + flush + readback + recovery規則の組合せを検証する。
 - journal corruption/unknown schema/ACL/path replacementがfail closedになる。
 - dedicated presentation ACK Stage 1/2、`StatusRequestV1`のBOOT/ORDINARY/PRESENTATION mode、root remount accepted path、core-issued `viewRevision` lifecycle、stale/duplicate/old-view tokenとConfirm/Revert raceが`KEEP_AUTHORIZED`/DecisionJournal規則に従う。
@@ -361,7 +382,7 @@ Tauri非依存のRust watchdog/worker prototypeで、`KEEP_AUTHORIZED` decision-
 
 #### 前提Phase
 
-Phase 1A closureとG1A result reviewの承認。exact read-only call allowlist、redaction/evidence、Target Machine、役割、Phase 2A専用human authorizationがfreezeされ、上記DD-FR-002 wire/serialization/worker-oracle artifactとvector IDが全て承認済みであること。display mutation承認は不要であり、Phase 2Aでは禁止する。現在は全て未決定/未承認で`NOT EXECUTABLE`である。
+Phase 1A closureとG1A result reviewの承認。exact read-only call allowlist、redaction/evidence、Target Machine、役割、Phase 2A専用human authorizationがfreezeされ、上記DD-FR-002 wire/serialization/worker-oracle artifactとvector IDが全て承認済みであること。display mutation承認は不要であり、Phase 2Aでは禁止する。D01〜D08のdesign direction以外の実行gate、artifact、evidence、Phase authorizationは未決定/未承認で、現在は`NOT EXECUTABLE`である。
 
 #### 中止条件
 

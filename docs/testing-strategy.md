@@ -1,7 +1,7 @@
 # DisplayDeck テスト戦略
 
-最終更新: 2026-08-05  
-状態: Tauri/Rust構成向け計画。テストコード作成・実行・Windows変更は未承認。
+最終更新: 2026-08-13
+状態: exploratory read-only CLIのStep 1〜8はWindows実機観測済み。Phase 2A以降のtest artifact、fixture、fault harness、Windows変更は未承認。
 
 ## 1. 最優先目標
 
@@ -142,12 +142,12 @@ fault injectionは各durable write、flush、close、reopen、worker spawn、ide
 ### 6.1 `DecisionJournalV1`
 
 - `ProvisionCurrentDecisionBaselineV1` first-baseline matrix: file absent、fresh exact-length file、A/B両方UNINITIALIZED、slot Aへ`generation=1,previousGeneration=0(ROOT),stateVersion=1,REVERT_REQUIRED`、slot BはUNINITIALIZED。file-global generationを継承しないことを検査する。
-- fresh file fault: create-intent前/後、create前、header partial、size allocation partial、sparse/trailing/short file、slot A書込み前/partial/full-flush前、flush error/成功後crash、close後-reopen前、readback前/失敗、WAL `DECISION_BASELINE_PROVISIONED` link前、machine `ACTIVE_INTENT` link前、`PREPARED`後-apply GO前を個別injectする。全caseでmutation call 0件とforeign evidence採用0件をoracleにする。
-- baseline result unknownはclose/reopen A/Bだけでvalid current rootの有無を決め、validなら追加baseline writeなし、invalid/absentならexact create/reclaim intentの同targetだけretry、unreadable/conflictは`FAILED_CLOSED`にする。
+- fresh file fault: create-intent前/後、`CREATE_NEW`前/成功直後、actual volume/file ID取得前/後、post-create durable checkpoint前/partial/flush/reopen後、full-zero write前/partial/full、header partial/full、sparse/trailing/short file、fresh readback前/失敗、slot A書込み前/partial/full-flush前、flush error/成功後crash、close後-reopen前、WAL `DECISION_BASELINE_PROVISIONED` link前、machine `ACTIVE_INTENT` link前、`PREPARED`後-apply GO前を個別injectする。全caseでmutation call 0件とforeign evidence採用0件をoracleにする。
+- baseline result unknownはclose/reopen A/Bだけでvalid current rootの有無を決め、validなら追加baseline writeなし、invalid/absentならactual file IDをbindしたexact post-create checkpointまたはreclaim intentの同targetだけretryする。post-create checkpoint前のexisting file、unreadable/conflictは`FAILED_CLOSED`にする。
 - rollover normal terminal: old `REVERT_REQUIRED` + normal terminal WAL、old `KEPT_SESSION`、old A/B両terminal、old baseline+Keep、old boot/display/owner/logon/lease、reclaim intent後crash、new baseline partial後crash、old evidence保持、normal terminal one-slot reclaim/audit summaryを検査する。
 - rollover block: unsupported schema、checksum mismatch、same-generation conflict、old `FAILED_CLOSED`、`RECOVERY_REQUIRED`、`RESTORING`、outcome unknown、old actor alive/判定不能、old MachineActorRecord nonterminal/unreadable/mismatch、old WAL unreadable/nonterminal、owner/boot/display unknownでreclaim/new mutation 0件とcritical evidence保持を検査する。
 - mixed-slot matrix: old session+current baseline、old session+current partial、current baseline+current Keep partial、different boot A/B、different display A/B、different owner/logon/lease A/B、same identity/same generation conflict、current identity slotなし、both invalid、current baseline only、current Keep+current baselineを検査する。foreign generationをcurrent max比較に入れない。
-- truncate/recreate oracle: active/unresolved、unknown schema、checksum mismatch、missing expected file、old critical evidenceでwhole-file truncate/delete/recreate 0件。fresh-create intentによるfirst fileのin-place completionだけを別caseにする。
+- truncate/recreate oracle: active/unresolved、unknown schema、checksum mismatch、missing expected file、old critical evidenceでwhole-file truncate/delete/recreate 0件。first fileのin-place completionはactual file IDをbindしたvalid post-create checkpointがあるcaseだけに限定する。
 - target invariant: fresh baseline=A/Keep=B、baseline=B/Keep=A、Keep writeからreadbackまでbaseline full-slot digest不変、partial/torn Keep後もbaseline valid、terminal Keep後もimmediate cleanup 0件を検査する。
 - slot A正常/slot B正常、Aのみ破損、Bのみ破損、両方破損。
 - partial slot、torn slot、checksum mismatch、invalid magic/schema/recordLength/slotIndex。
@@ -158,8 +158,82 @@ fault injectionは各durable write、flush、close、reopen、worker spawn、ide
 - deadline直前`KEEP_AUTHORIZED`、deadline exact/後のauthorization拒否、authorization後I/O遅延/flush stall。
 - `KEEP_AUTHORIZED`後actor lossでnew slotなし、partial slot、full valid slotの3結果をRevert/Revert/Keepへ分類する。
 - duplicate Confirm、terminal Keep後Revert、writer alive-but-hung、writer exit後replacement、lease/instance fencing、concurrent writer 0件。
-- antivirus/EDR/filter driver/share interference、disk full、access denied、power-loss相当fault injection。
+- antivirus/EDR/filter driver/share interference、disk full、access denied、power-loss相当simulation fault injection。simulation結果を実電源断evidenceと扱わず、storage/controller/filterを含むphysical power/reboot testはsupport cell別の別evidenceとする。
 - outcome unknownでpossible Keepを上書きせず、close/reopen後のA/Bからnew valid Keep/no new generation/unreadable-conflictをKeep/Revert/FAILED_CLOSEDへ分類する。
+
+### 6.2 DD-FR-002 freeze-candidate vector specifications
+
+次は方針承認済みのcandidate vector specificationである。**履歴（2026-08-13）**では、vector ID、semantic input、canonicalization、expected classification、side-effect oracleを文書で固定しただけで、full byte列、expected SHA-256、artifact hashは未作成かつfixture作成・実行は未許可だった。**現況（CANDIDATE-04 artifact generated / static review clean）**では、active profileのbounded full-byte fixture、expected SHA-256、semantic manifest、artifact index、aggregate hashの生成・検証だけを許可し、その590 vector artifactについて独立static reviewはCLEANである。`DD-FR-002-D04-C04-RESOLUTION-PACKAGE-01`は2026-08-13に一括承認され、statusは`FULL_BYTES_GENERATED / SHA256_COMPUTED / FULL_INDEPENDENT_STATIC_REVIEW_CLEAN / HUMAN_FREEZE_APPROVAL_PENDING`である。これはPhase 2A product/runtime implementation、Tauri/watchdog/worker integration、runtime serializer/WAL、fault harness、display mutationを許可しない。
+
+D04 fixtureの正本はcanonical JSON `D04TUPV1` tuple witnessである。各正負artifactは固定key順の`tupleProjection`実体とそのSHA-256を持ち、top-level `recordState / operationKind / operationNonce / P / Q / O`およびstate別`E / terminalPair / initialProvision`とのbyte-exact一致をoracleで検査する。リンクされた`MARV1`はbinary envelope/state layout sampleだけで、`machineActorLayoutOnly=true`を要求する。generic MARのP/Q/nonce/ownerをD04 tuple-specific sourceとして照合または主張してはならない。
+
+最初のfull-byte reviewで`CANDIDATE-02`のworker境界混在とMAP checksum vector欠落が判明したため、同IDを上書きせず`CANDIDATE-03`を作成した。CANDIDATE-03はGO replayとterminal-after-frame、MAP semantic rejectとchecksum rejectを分け、D02 inner evidenceとD03 SID cross-linkを追加し、77 vectorのbytes/hash/index自己整合を示した。しかし独立reviewはD02 canonical subject/observation source coverage、D03/SID binding coverage、MAP resume/cleanup scenario、DJ/MAR negative/cross-link coverageの不足を確認したため、CANDIDATE-03はfreeze不可である。CANDIDATE-04はこれらを別IDで拡張した。candidate spec labelは`DJV1-VECTORS-V1-CANDIDATE-04-SPEC`、`MARV1-VECTORS-V1-CANDIDATE-04-SPEC`、`MAPRV1-VECTORS-V1-CANDIDATE-04-SPEC`、`WORKER-ONESHOT-ORACLE-V1-CANDIDATE-04-SPEC`とし、exact 590-vector catalogは生成器が出力したmanifest/indexを候補正本とする。各statusは`FULL_BYTES_GENERATED / SHA256_COMPUTED / FULL_INDEPENDENT_STATIC_REVIEW_CLEAN / HUMAN_FREEZE_APPROVAL_PENDING`、worker oracleはさらに`CODE_NOT_CREATED`とする。semantic manifestだけが次の13 fieldをこの順で持ち、`expectedSideEffects.displayMutation=0`を例外なく要求する。
+
+```text
+vectorId
+family
+positiveOrNegative
+requiredDecisionSet
+semanticInputProfile
+canonicalizationRule
+mutationDescriptor
+expectedParse
+expectedClassification
+expectedRecoveryDisposition
+expectedSideEffects
+byteFixtureStatus
+sha256Status
+```
+
+`mutationDescriptor`は元semantic inputから一つのnegative変化を記述する診断fieldで、実fileやfixture bytesを変更する命令ではない。`expectedSideEffects`は少なくとも`displayMutation,processLaunch,fileCreate,fileDelete,fileTruncate,fileWrite`のbounded countを持ち、文書candidateでは安全側のexpected valueだけを記録する。fixture bytes/hashは現行の限定authorization範囲でのみ生成・検証し、生成中または未生成をpass扱いせず、生成完了だけを`FROZEN`/Phase 2A authorizationと読み替えない。
+
+semantic manifestとは別に、freeze artifact inventoryは`DD-FR-002-ARTIFACT-INDEX-V1-CANDIDATE-01`とする。全vectorの13-field objectを`vectorId` bytewise ascendingで1行1 canonical JSON + LF（最終LFあり）へまとめた単一`semantic-manifest.jsonl`をsemantic正本にする。top-level key順は`indexSchema,profileId,semanticManifestSha256,entries`、entry key順は`vectorId,relativePath,byteLength,fixtureSha256,linkedVectorIds,linkedFixtureSha256s`である。`entries`は`vectorId` bytewise ascending、link IDもbytewise ascending distinctとし、`linkedFixtureSha256s`は同じindexのlink先`fixtureSha256`と順序・件数までexact一致させる。`relativePath`はartifact rootからの`/`区切りrelative pathだけ、`byteLength`は16-char lowercase hex u64、全SHA-256は64-char lowercase hexとする。index外のapproval recordは`semantic-manifest.jsonl` full bytesの`semanticManifestSha256`、canonical index full bytesの`artifactIndexSha256`、およびarchitecture 19.7のdomain-separated ordered-entry preimageによる`aggregateFixtureSetSha256`を同じ`profileId`へbindする。artifact indexは13-field semantic manifestの代替ではなく、index自身/sidecar hash/aggregate hashを自らのhash preimageへ含めない。
+
+- `DJV1` familyはfresh header + zero A/B、baseline A / Keep B、baseline B / Keep A、captured tick 0をpositive specにし、partial/torn/short/trailing/reserved、unknown decision、wrong physical slot index、checksum、generation/previous mismatch、cross-session/boot/display/owner/lease identityをnegative specにする。
+- `MARV1` familyは13 stateのminimal required record、stateごとのcomplete optional group、3つの`FAILED_CLOSED` subvariant、provisioned-clean profileをpositive specにし、forbidden/partial group、JSON `null`/number/escape/order/duplicate key、unknown state/WAL/result/detail/evidence kind、zero/old lease、A bytes copied to B、payload/checksum/trailing、旧direct fresh sentinelをnegative specにする。
+- `MAPRV1` familyは`MAPRV1-P-000`のfresh header + zero A/Bと、`CREATE_INTENT -> POST_CREATE_CHECKPOINT -> MACHINE_INTENT_PUBLISHED -> MACHINE_ACTIVE_PUBLISHED -> MACHINE_CLEAN_OBSERVED -> TERMINAL_RETAINED`のalternating slot chainをpositive specにする。CREATE_NEW直後、checkpoint前後、same/different file identity、partial header/slot、DACL/anchor/attribute mismatch、unknown state、premature resume/delete/recreate、`FAILED_CLOSED`からのcleanupをnegative specにする。
+- worker oracle familyはsame process identity/different instance、same instance/different role/operation/nonce、PID reuse with different creation time、old process not signaled、old lease、GO replay、terminal後frameを全てrejectし、process launch/display mutation/file writeのexpected countを各boundaryで固定する。
+
+minimum semantic vector ID catalogは次とする。range表記は各memberが独立manifest/vector IDを持つ意味で、1つの集約fixtureを意味しない。
+
+| Vector ID / range | Kind | Semantic profile | Expected high-level classification |
+| --- | --- | --- | --- |
+| `DJV1-P-001` | positive | header + zero A/B + exact durable/reopened post-create checkpoint link | `FRESH_UNINITIALIZED` |
+| `DJV1-P-002` / `003` | positive | baseline A/Keep B、baseline B/Keep A | exact current chain |
+| `DJV1-P-004` | positive | captured tick=0 boundary | valid captured value |
+| `DJV1-N-*` | negative | envelope/length、checksum、slotIndex/offset、generation chain、foreign identity、create-checkpoint violationとCANDIDATE-03 reviewで不足したnegative/cross-link coverage | reject / fail-closed classification |
+| `MARV1-P-STATE-*` | positive | 13 stateのminimal required payload | exact state parse |
+| `MARV1-P-FC-*` | positive | 3 FAILED_CLOSED subvariant | exact critical classification、no live authority |
+| `MARV1-P-PROVISIONED-CLEAN` | positive | D06 owner-bound ordinary clean | clean inspection only |
+| `MARV1-N-GROUP-*` | negative | forbidden key、partial optional、partial E | reject |
+| `MARV1-N-JSON-*` | negative | null/number/escape/whitespace/order/duplicate/unknown/trailing key | reject |
+| `MARV1-N-ENUM-*` | negative | unknown record/WAL/result/detail/evidence kind | reject without coercion |
+| `MARV1-N-FENCE-*` | negative | zero/old lease、actor mismatch、slot copy | reject / no authority |
+| `MARV1-N-PROVISION-*` | negative | old direct sentinel、hybrid sentinel、wrong completion variant、zero required digest | reject |
+| `MAPRV1-P-000` | positive | fresh header + zero A/B | exact `FRESH_UNINITIALIZED` classification only |
+| `MAPRV1-P-STATE-01..06` | positive | 6-state alternating bootstrap chain | exact checkpoint/terminal classification |
+| `MAPRV1-N-*` | negative | pre-checkpoint crash、identity/DACL/anchor/attribute mismatch、unknown state、resume scenario、premature resume/delete/recreate、`FAILED_CLOSED` cleanup、checksum mismatch | fail closed、target write/delete 0 |
+| `BOOTIDV1-P-001` | positive | precomputed canonical raw input tuple → expected raw 32-byte digest | exact domain-separated digest only |
+| `OWNERSIDV1-P-*` / `OWNERSIDV1-N-*` | positive / negative | actual canonical SID bytes → owner SID digest → DJ/MAR/MAP/lock-name cross-link、およびboundary/invalid representation | exact domain-separated digest/cross-link、またはreject |
+| `WOSV1-N-001..009` | negative | instance/role/operation、PID reuse、old process、old lease、GO replay、terminal-after-frameを各々single mutationとして分離 | reject、display mutation 0 |
+
+各range memberのexact ID、`semanticInputProfile`、single mutation、expected counterはCANDIDATE-04 generatorのmanifest行で確定する。上表の`*`は候補familyを示すだけで、rangeを1 fixtureへ合成してはならない。現行の限定authorizationは、各memberを個別artifactとして生成・hash・index検証することだけを許可し、runtime/fault fixtureの生成・実行、product code、display mutationを許可しない。
+
+header + zero A/Bだけでmatching `DECISION_JOURNAL_POST_CREATE_CHECKPOINT`が無いDJV1 fileはpositive fresh vectorにせず、`DJV1-N-006`のunbound zero-file profileとしてrejectする。MARV1のQ-without-P、P/Q wrong tagged variant、nested `schema/kind/operationNonce/result` width/case/literal mismatch、P/Q/top-level P groupの`schema/kind/operationNonce`不一致も`MARV1-N-GROUP/JSON` rangeへ必須で含める。
+- `OwnerWalLinkStateV1`は`0x0000..0x0014`の定義済みlink/nonterminal code、`0x0020..0x0028`のterminal codeを全件round-tripし、`0x0015..0x001f`、`0x0029..0xffff`、その他table外codeをrejectする。`ABSENT_EXPECTED`はmachine link sentinelだけで、owner WAL frameへencodeできないことを検査する。
+- in-memory `KEEP_AUTHORIZED`、MachineActorの13 wire state、DecisionJournal decision、UI projection、heartbeat observation、file classification、`JOURNAL_CORRUPT_OR_UNKNOWN`を`ownerWalState`へencodeできないことをcompile/domain testとnegative bytesで検査する。同名`KEPT_SESSION`も別schemaのnumeric codeを共有せず、digest linkだけを許す。
+- generic `RESTORE_INTENT`をrejectし、`RESTORE_CURRENT_INTENT` / `RESTORE_RESULT` / `RESTORE_PERSISTED_INTENT`の順序、C0 failure detail、P0 fallback conditionを別vectorにする。preflight/apply error detailを新しいstateへ暗黙昇格させない。
+- canonical JSONはmaster key order、ASCII subset、whitespace/escape/duplicate keyなし、全scalar stringをpositive vectorにする。JSON number、boolean、`null`、array、unknown/trailing key、大小文字違いhex、width違い、optional groupの部分出現をrejectする。
+- `SidValueV1`はpresent SIDのlength 8/68 boundary、Windows SID validation、unused tail zeroを検査する。`kind=0000 ABSENT_EXPECTED`の型decodeはpresentと混同しないことを確認するが、D06採用後のvalid MachineActor stateでは出現をrejectする。present+length 0、absent+nonzero length/bytes、invalid SID、nonzero tail、string SID/account nameもrejectする。
+- process/actor objectはPIDだけで同一視せず、creation time、signed image identity、role、process nonce、logical instance IDを個別に変えたnegative vectorを持つ。finalizing watchdogはcandidate上`WATCHDOG` roleのままで、未定義`FINALIZER` roleを受理しない。
+- `OperationResultV1`は`NONE`をvalid MachineActor V1でrejectし、reserved/unknown resultをfail closedにする。全operation-kind tagged completionでcommon prefix=`schema,kind,operationNonce,result,actor`を必須とし、Qの`schema/kind/operationNonce`をPとtop-level P groupへexact bindする。wrong variant/key、zero required digest、actor mismatchをrejectする。result単独でKeep、restore、maintenance成功、startup authorityを決めず、operation kind / owner WAL state / terminal digest / MachineActor stateのtuple不一致をrejectする。
+- `LINKED_OWNER_NONTERMINAL_UNCERTAINTY`はH/O/P/Q/E complete、T forbidden、Q=`OUTCOME_UNKNOWN`、Oのlast valid nonterminal generation exact一致だけを許す。missing Q、terminal T混入、success result、unreadable WALからのowner state推測をrejectする。
+- D06はnonzero epoch/lease/bootの`MAINTENANCE_INTENT(INITIAL_PROVISION) -> MAINTENANCE_ACTIVE`から、designated ownerとMAINTENANCE actor/tagged completionをbindしたordinary clean recordだけを許す。complete O/T typed-absence profileは許可するが、旧direct案のzero epoch/lease、zero bootId、absent SID、NONE P/Q、またはその一部を混ぜたhybrid、generic empty string、欠落required keyをrejectする。
+- `UNKNOWN` / `FAILED_CLOSED`はunknown numeric enumのcoercion先にしない。nonzero bounded `lastErrorClass + lastErrorDetailCode + preservedEvidenceDigest`を必須にし、detail/class/evidence-kind mismatch、partial E、zero inner/outer digest、unknown detail、ordinary operation failureのcritical昇格をrejectする。
+- D03 `ownerSidDigest`はdomain separator、actual SID lengthのu32 little-endian、actual binary SIDだけをhashし、fixed-capacity tail/JSON/string SIDがdigestを変えないpositive/negative vectorを持つ。MachineActor owner SID、DecisionJournal digest、lock-name digestの三者をexact cross-linkする。
+- D06 provision matrixはseparate bootstrap recordの`CREATE_INTENT`前後、MachineActor `CREATE_NEW`直後、actual volume/file ID取得、`POST_CREATE_CHECKPOINT` partial/flush/reopen、same/different file ID、full-zero/header、最初のvalid `MAINTENANCE_INTENT`、`MAINTENANCE_ACTIVE`、owner-bound ordinary clean publicationを個別に停止する。checkpoint前のexisting fileはresume/delete/recreate 0件、checkpoint後はsame identityだけin-place resumeを許す。provisioned cleanのdisplay/logon/session/WAL/terminal typed absenceと、初回runtime `ACTIVE_INTENT`のactual値を混同しない。
+- D05/D07はSYSTEM creator、single designated runtime SID、object別ACE mask/order、protected/no-inheritance、別SID/broad principal/forbidden rights、file ID/DACL/attribute/anchor readbackをmanifestへ持つ。directory anchor algorithmまたはWindows実証が未確定のcellはexpected classification=`DIRECTORY_ANCHOR_UNPROVEN`、file create/write/delete/display mutation全て0件とする。
+- D08 static wire-freeze laneは、precomputed `BootIdV1` raw input tuple（canonical UTC FILETIME、parsed version/build）とそのexpected raw 32-byte digestだけを扱う。fixtureはWMI query、provider timeout/retry、`GetTickCount64`、precise UTC sample、tolerance値を含めず、時変tick/UTC sampleがhash preimageへ入らないことだけを検査する。WMI boot UTC/version/buildを別actorがreadすること、reboot/build mismatch、WMI strict-parse mismatch、tick/UTC cross-check failure、sample span/tolerance boundary、clock-jump/provider errorは`D08-WINDOWS-EVIDENCE-LANE-V1`の`EVIDENCE_PENDING`項目であり、static wire vectorとして作成・pass・freeze扱いにしない。
 
 ## 7. Watchdog/worker
 
@@ -209,6 +283,7 @@ fault injectionは各durable write、flush、close、reopen、worker spawn、ide
 
 ### 7.5 Machine record / maintenance durability
 
+- separate installer provision recordのcreate intent、MachineActor file `CREATE_NEW`、actual file ID/DACL/owner post-create checkpoint、first valid `MAINTENANCE_INTENT(INITIAL_PROVISION)`、`MAINTENANCE_ACTIVE`、owner/actor/completionをbindしたordinary `TERMINAL_CLEAN`、flush/close/reopen、standard-user `OPEN_EXISTING`更新、別user拒否、repair/update/uninstallの各境界を一つのfresh-provision matrixで検査する。途中crashでmissing/partial/identity不一致をdirect clean sentinelへ推測せず、Phase 2A mutation/process launch 0件にする。
 - architecture 19.2の全13 wire stateをcanonical field orderでserialize/deserializeし、UI projection名をwireへencodeできないことを検査する。
 - 各stateのrequired field不足、forbidden field混入、optional group片側欠落、unknown enum、unknown schema、recordLength/checksum mismatchを`FAILED_CLOSED`へ分類する。
 - machine gate取得、ACTIVE_INTENT partial/full write、ACTIVE_PREPARED/WATCHDOG_READY/APPLY_ARMED/MUTATED link、WAL terminal、RESTORING/TERMINALIZING、TERMINAL_CLEAN partial/publication、lock releaseの各境界へcrashを注入する。

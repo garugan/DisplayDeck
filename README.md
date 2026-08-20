@@ -573,7 +573,7 @@ Summary: Records=619 Complete=619 Incomplete=0
 
 通常の3台・extend環境に対するStep 7は完了です。この結果はcandidate policyを緩和する根拠ではなく、このWindows実機観測環境では現時点でmutation候補を発行できないという、将来のG1A review入力の一部です。正式なsupport cell identity、support fingerprint、machine manifest、evidence IDはまだ発行していません。3本のdistinct-source active pathによる複数display構成はStep 8でfail-closed evidenceとして扱い、59.94/60、hotplug、RDP、virtual、clone / shared-sourceは別cellまたは未観測gapとして分類します。
 
-## Step 8: read-only support assessment（実装済み・Windows実機検証待ち）
+## Step 8: read-only support assessment（CLI milestone完了・Phase 1A closure未完）
 
 Step 8では、Step 5のexact cross-map、Step 6のcurrent observation、Step 7のcandidate catalogを、文字列出力ではなく同じtyped reportから集約します。目的は、現在の観測環境で確認できたnegative evidenceと未観測gapを区別し、初期mutation対象へ誤って昇格させないことです。
 
@@ -741,13 +741,24 @@ Read-only Support Assessment
 11. `ApprovedCcdSurfaceNotImplemented`、session / RDP、candidate binding、expected observation、support fingerprint、preferred / persisted / HDR / DRR、formal evidence bundle等のgapが表示される。
 12. 実行前後で解像度、refresh rate、monitor配置などが変化しない。
 
-### Step 8の完了条件
+### Step 8の実機検証結果
 
-実装と確認手順は完了しています。Windowsで55件のtestと実機出力を確認するまではStep 8実装を完了扱いにしません。また、Step 8のWindows検証が成功しても、正式なPhase 1A / G1A closureとは別です。exact support cell identity、OS build / KB、GPU / driver / monitor / connection manifest、session / privilege evidence、approved CCD surface、call trace / timebox、sanitized bounded evidence bundle、human reviewが不足している間は`Phase1AClosure: NotClaimed`を維持します。
+Windows実機で`cargo fmt --check`、55件のunit test、build、CLI実行が成功しました。Step 5は3 pathすべて`Exact`、Step 6は`ExactPaths=3` / `UnavailablePaths=0`、Step 7は619 candidatesのままで回帰はありません。Step 8では次を確認しました。
+
+- `MultipleActivePaths { count: 3 }`、portrait `observed=1 exact=1`
+- GDI attached adapter / monitorとCCD exact source / targetがそれぞれ3 / 3で、reverse coverageは`consistent: true`
+- CCD native markerおよびGDI mirroring / remote / RDPUDD / unknown state markerは0。ただし、その不在をlocal physical / single-sessionの証明には使用しない
+- 619 candidatesすべて`HardExcluded`で、`CurrentNotListed=619`、`PolicyDifferent=394`、`PolicyEvidenceUnavailable=844`、reason合計1857
+- 全internal invariantがtrueで、`Disposition: RejectedByObservedEvidence`、`MutationAllowed: false`、`ProductAllowed: 0`、`SelectionTokens: 0`
+- 実行前後で解像度、refresh rate、portrait配置を含む3台のmonitor設定に変化がない
+
+以上によりStep 8のWindows実機検証と実装は完了です。ただし、これは正式なPhase 1A / G1A closureではありません。exact support cell identity、OS build / KB、GPU / driver / monitor / connection manifest、session / privilege evidence、approved CCD surface、call trace / timebox、sanitized bounded evidence bundle、human reviewが不足しているため、`Phase1AClosure: NotClaimed`を維持します。
+
+ここに記載したのはユーザーが確認した実機結果の要約であり、immutableなPhase 1A evidence recordではありません。元のvalidation log名、実行日時、Target Machine、Operator / Evidence Owner、sanitized evidence IDと保管場所は、正式なPhase 1A recordを作成するときに別途登録します。
 
 ## 初期リリースまでの実装roadmap
 
-Step 1〜7のread-only display列挙、mode取得、CCD取得、GDI ↔ CCD exact cross-map、`CurrentObservation`統合、candidate modelはWindows実機検証済みです。Step 7後の現HEADでもStep 5 / 6の回帰がないことを確認しました。Step 8のfail-closed qualification実装はWindows検証待ちです。通常環境の成功だけでread-only spike全体を完了扱いにせず、観測済みnegative evidenceと未観測または初期対象外のgapを分けて、将来のG1A result reviewへ渡します。
+Step 1〜8のread-only display列挙、mode取得、CCD取得、GDI ↔ CCD exact cross-map、`CurrentObservation`統合、candidate model、fail-closed support assessmentはWindows実機検証済みです。Step 8後の現HEADでもStep 5 / 6 / 7の回帰がなく、実行前後でmonitor設定が変化しないことを確認しました。通常環境の成功だけでPhase 1A / G1A closureを主張せず、観測済みnegative evidenceと未観測または初期対象外のgapを分けて、将来のG1A result reviewへ渡します。
 
 ### Read-only CLIの完成
 
@@ -776,11 +787,63 @@ Step 1〜7のread-only display列挙、mode取得、CCD取得、GDI ↔ CCD exac
 | 16 | Phase 7 | Windows実機総合test | 承認されたWindows 10/11、GPU、driver、physical display cellで通常操作、59.94/60、縦置き、hotplug、process crash、rollback、session変化、accessibilityを検証する。 |
 | 17 | Phase 8 | installer・初期release判定 | NSIS候補、WebView2、署名、update/repair/uninstall、watchdog同梱・process behavior、recovery evidenceをpackaged環境で確認し、初期リリースのGo/No-Goを決定する。 |
 
+### Step 9の現在位置
+
+Step 9は便宜上`FREEZE_CANDIDATE_AUTHORING`と呼んだ文書作業段階です。これは正式なPhase名、gate結果、実行許可ではありません。`DecisionJournalV1`、`MachineActorRecordV1`、`MachineActorProvisionRecordV1`、one-shot worker oracleのcandidate specification labelを[`docs/implementation-plan.md`](docs/implementation-plan.md)へ記録しました。
+
+**履歴（2026-08-13）**: ユーザーはD01〜D08のrecommended candidateを設計方針として承認し、当時は文書上のfreeze candidate作成だけを許可しました。full-byte fixture、expected SHA-256、artifact hash、Windows file/DACL実証、Reviewer / Approver、Phase 2A専用authorizationは未存在であり、Phase 2A実装、fixture作成・実行、display mutationは未許可でした。[`docs/architecture.md`](docs/architecture.md) 19.7〜19.8は、この承認を固定長slot、`OwnerWalLinkStateV1`、canonical JSON/SID、first-create checkpoint、vector manifestへ反映したcandidate specificationです。
+
+**CANDIDATE-03 review history（不合格）**: `CANDIDATE-03`は77 vectorのfull bytes、individual SHA-256、semantic manifest、artifact index、aggregate hashについて自己整合は確認できました。しかし独立reviewは、D02のsubject/observation canonical-source coverage、D03/SID binding coverage、MAP resume/cleanup semantic scenario、DJ/MAR negative/cross-link coverageに不足を確認しました。したがって`CANDIDATE-03`はfreeze不可です。hash整合はindependent review pass、artifact approval、`FROZEN`のいずれも意味しません。同じcandidate IDを修正して再利用しません。
+
+**現況（CANDIDATE-04 artifact generated / static review clean）**: active profileは`DD-FR-002-WIRE-PROFILE-V1-CANDIDATE-04`です。CANDIDATE-04はD02 canonical subject/observed sources、D03/SID boundary and cross-link coverage、DecisionJournal/MachineActor negative matrices、MAP resume scenario、D04 tuple/readiness/evidence matrixを拡張し、worker oracleの`WOSV1-N-001..009`とstatic `BootIdV1`を維持します。exact vector ID、bytes、hash、catalogは生成器が出力したcandidate-04 manifest/indexを候補正本とします。statusは`FULL_BYTES_GENERATED / SHA256_COMPUTED / FULL_INDEPENDENT_STATIC_REVIEW_CLEAN / HUMAN_FREEZE_APPROVAL_PENDING`です。
+
+**CANDIDATE-04 full independent static review**: generatorは590 vectorを再現可能に生成し、self-verifyと別temporary directoryへのbyte-for-byte再生成に成功しました。独立reviewは590件すべてのID、byte length、fixture SHA-256、index link、unindexed file、`SHA256SUMS`、semantic manifest/index/aggregate hashを再計算して`CLEAN`と判定しました。D04はstructural positive 205件（display/recovery 60、maintenance/update/repair 144、initial provision 1）、negative 28件、D04 evidence 162件、readiness companion 1件で、K06 positiveは0件です。現package hashはsemantic manifest=`4211b04dc0f456f3ca9d8e3f527bb27f31bfa96dc7e3e26ab62ca69534375210`、artifact index=`de757449851e60280e949f5000072fc4edde655a1053ef587a46b30a2e246b9a`、aggregate fixture set=`1181f1ff3850877bf0bb5afe19a09f4812571f4b5da0d11b12bc2d0a6ab75179`です。2026-08-13に[`docs/architecture.md`](docs/architecture.md) の`DD-FR-002-D04-C04-RESOLUTION-PACKAGE-01`は一括承認され、許可範囲内のD04 fixture再生成とCandidate 04全体の独立reviewが完了しました。これは最終artifact approvalまたは`FROZEN`ではなく、Phase 2A実装とdisplay mutationも未許可です。
+
+#### Step 9 Windows検証コマンド
+
+Windows PowerShellでrepository rootへ移動し、次を上から順に実行します。Pythonは標準ライブラリだけを使用し、display設定やruntime fileを変更しません。全出力は`step9-windows-validation.txt`へ保存されます。
+
+```powershell
+Start-Transcript -Path step9-windows-validation.txt -Force
+
+py -3 -B tools/dd-fr-002-freeze/dd_fr_002_freeze.py verify
+py -3 -B tools/displaydeck-evidence/validate_d07_no_go.py tools/displaydeck-evidence/d07-no-go-predicate.template.json
+py -3 -B tools/displaydeck-evidence/validate_d07_no_go.py --self-test
+py -3 -B tools/displaydeck-evidence/validate_d08_readonly_capture.py tools/displaydeck-evidence/d08-readonly-capture.template.json
+py -3 -B tools/displaydeck-evidence/validate_d08_readonly_capture.py --self-test
+py -3 -B tools/displaydeck-evidence/validate_g1a_bundle.py tools/displaydeck-evidence/g1a-bundle-manifest.template.json --artifact-root tools/displaydeck-evidence
+py -3 -B tools/displaydeck-evidence/validate_g1a_bundle.py --self-test
+git diff --check
+
+Stop-Transcript
+```
+
+期待結果は`verification=pass vectors=590 side-effects=0`、各templateの`valid`、各`self-test: pass`で、`git diff --check`は無出力です。途中で1件でも失敗した場合はそこで検証失敗とします。この手順はCandidate 04、D07 No-Go、D08 static known-answer、G1A templateを検証するもので、D08 runtime captureを実施したり`FROZEN`を承認したりするものではありません。
+
+今回の限定authorizationは、full-byte fixture、expected SHA-256、semantic manifest、artifact index、aggregate hashの生成・検証、D07 controlled filesystem/DACL evidence、D08 read-only Windows evidence、formal G1A evidence bundleの作成だけです。Phase 2A product/runtime code、Tauri/watchdog/worker統合、runtime serializer/WAL file、fault harness、display mutationは引き続き未許可です。D07は`DIRECTORY_ANCHOR_UNPROVEN / NO_GO_RECORDED`、D08は`READ_ONLY_AUTHORIZED / WINDOWS_CAPTURE_NOT_RUN`、G1Aはtemplate/validatorのみでformal result evidenceはpendingです。
+
+| Decision | 人間が決める内容 | 現在のrecommended candidate | Status |
+| --- | --- | --- | --- |
+| `DD-FR-002-D01` | owner WAL state / result / recovery classificationの分離 | exact WAL frame stateだけをlinkし、valid writerの`FAILED_CLOSED`とunreadable classificationを分離 | `POLICY_APPROVED / SPEC_CANDIDATE / BYTE_ARTIFACT_GENERATED / INDEPENDENT_STATIC_REVIEW_CLEAN / HUMAN_FREEZE_APPROVAL_PENDING` |
+| `DD-FR-002-D02` | critical evidenceのlossless binding | bounded detail codeとpreserved-evidence digestをcanonical fieldへ追加 | `POLICY_APPROVED / SPEC_CANDIDATE / BYTE_ARTIFACT_GENERATED / INDEPENDENT_STATIC_REVIEW_CLEAN / HUMAN_FREEZE_APPROVAL_PENDING` |
+| `DD-FR-002-D03` | MachineActor JSON / SID表現 | scalarは固定幅string、SIDはfixed-capacity typed object、optional groupは全出現または全省略 | `POLICY_APPROVED / SPEC_CANDIDATE / BYTE_ARTIFACT_GENERATED / INDEPENDENT_STATIC_REVIEW_CLEAN / HUMAN_FREEZE_APPROVAL_PENDING` |
+| `DD-FR-002-D04` | completion resultとstate × actor binding | bounded `OperationResultV1`とoperation-kind tagged completionを使い、active / maintenance / terminal actorの照合先をstate別に固定 | `POLICY_APPROVED / SPEC_CANDIDATE / BYTE_ARTIFACT_GENERATED / INDEPENDENT_STATIC_REVIEW_CLEAN / HUMAN_FREEZE_APPROVAL_PENDING` |
+| `DD-FR-002-D05` | machine recordのruntime writer | SYSTEM creator/maintenance writerとinstaller-designated single runtime owner SIDに限定 | `POLICY_APPROVED / SPEC_CANDIDATE / BYTE_ARTIFACT_GENERATED / INDEPENDENT_STATIC_REVIEW_CLEAN / HUMAN_FREEZE_APPROVAL_PENDING` |
+| `DD-FR-002-D06` | fresh MachineActor provision | separate installer provision recordでcreate前intentとactual file-ID checkpointをdurable化し、最初のvalid maintenance intent / activeを経てowner-bound ordinary cleanへ進む | `POLICY_APPROVED / SPEC_CANDIDATE / BYTE_ARTIFACT_GENERATED / INDEPENDENT_STATIC_REVIEW_CLEAN / HUMAN_FREEZE_APPROVAL_PENDING` |
+| `DD-FR-002-D07` | directory anchor / reparse proof | documented handle/APIでrace-resistantに証明できたcellだけadmit。現時点は未証明のためNo-Go | `POLICY_APPROVED / SPEC_CANDIDATE / DIRECTORY_ANCHOR_UNPROVEN / NO_GO_RECORDED / HUMAN_FREEZE_APPROVAL_PENDING` |
+| `DD-FR-002-D08` | boot identity | stable WMI boot UTC/version/buildだけをhashし、tick/UTC cross-checkは別acceptance evidenceとして実機でtoleranceをfreeze | `POLICY_APPROVED / SPEC_CANDIDATE / READ_ONLY_AUTHORIZED / WINDOWS_CAPTURE_NOT_RUN / HUMAN_FREEZE_APPROVAL_PENDING` |
+
+D01〜D08の方針承認と今回の統合freeze-evidence authorizationは、full-byte artifact生成を許可しますが、`FROZEN`、artifact approval、Phase 2A authorizationではありません。CANDIDATE-04のfull-byte生成と独立static reviewは完了しましたが、D07/D08/G1A evidence、Reviewer/Approver、immutable approval referenceが揃うまでcode値やDACL候補の実装正本にしません。D05によりV1のmutation writerはinstaller-bound single runtime ownerだけで、別ownerへの変更はelevated maintenance/rebindを必要とします。
+
+Phase 2Aは、formal G1A result reviewとDD-FR-002 freezeに加え、exact Windows / CPU / environment cell、filesystem / volume / security-product matrix、named-object / file / DACL exact call allowlist、fault / crash / power-loss injection allowlist、evidence fields / redaction / retention / location、Operator / Evidence Owner / Reviewer / execution date、Approverとimmutable approval IDを含むPhase 2A専用recordが全て埋まり承認されるまで`NOT EXECUTABLE`です。
+
+Step 8の完了はPhase 2Aの自動承認ではありません。今回の承認はfreeze-evidence artifact生成に限定されます。Phase 2A product/runtime code、file operation、serializer、fault harnessは、正式なPhase 1A closure / G1A result review、DD-FR-002 full freeze、Phase 2A専用record全項目と専用authorizationが揃った後にだけ開始でき、同Phaseでもdisplay mutationは禁止です。
+
 ### Gateと実装完了の定義
 
 - Step 9のPhase 2Aとそのevidence reviewが完了するまで、display設定変更APIを実装・実行しない。
 - Step 10以降のmutation、watchdog recovery、product integration、installerは、それぞれ前提phaseの完了と別のhuman authorizationを必要とする。
-- Step 1〜7の承認や成功を、後続mutation phaseの承認として扱わない。
+- Step 1〜8の承認や成功を、後続Phase 2Aまたはmutation phaseの承認として扱わない。
 - 初期リリースの実装完了はStep 17のpackaged検証とrelease判定までとする。
 - scale変更は初期リリースに含めず、別のPhase 9技術スパイクとして扱う。
 

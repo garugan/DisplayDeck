@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "DisplayDeck.G1ABundleManifestV1",
+  "title": "DisplayDeck G1A bounded evidence bundle",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "bundleStatus", "closureStatus", "bundleId", "createdAtUtc", "evidenceOwner", "operator", "reviewer", "targetMachineAlias", "redactionReference", "retentionReference", "accessReference", "locationReference", "repositoryBinding", "sourceBinding", "toolchainBinding", "buildBinding", "allowlistStatus", "callTraceStatus", "environmentStatus", "observationsStatus", "reviewStatus", "gapsStatus", "phase2AAuthorized", "displayMutationAllowed", "maxBundleBytes", "oversizeDisposition", "artifacts", "totalArtifactBytes", "bundleContentSha256"],
+  "properties": {
+    "schemaVersion": { "const": "G1A-BUNDLE-MANIFEST-V1" },
+    "bundleStatus": { "enum": ["TEMPLATE", "EVIDENCE_COLLECTED", "REVIEW_READY"] },
+    "closureStatus": { "enum": ["PENDING", "HUMAN_REVIEW_REQUIRED"] },
+    "bundleId": { "type": "string", "pattern": "^[A-Z0-9][A-Z0-9._-]{2,127}$" },
+    "createdAtUtc": { "type": "string", "pattern": "^(PENDING|[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z)$" },
+    "evidenceOwner": { "$ref": "#/$defs/reference" },
+    "operator": { "$ref": "#/$defs/reference" },
+    "reviewer": { "$ref": "#/$defs/reference" },
+    "targetMachineAlias": { "$ref": "#/$defs/reference" },
+    "redactionReference": { "$ref": "#/$defs/reference" },
+    "retentionReference": { "$ref": "#/$defs/reference" },
+    "accessReference": { "$ref": "#/$defs/reference" },
+    "locationReference": { "$ref": "#/$defs/reference" },
+    "repositoryBinding": { "$ref": "#/$defs/binding" },
+    "sourceBinding": { "$ref": "#/$defs/binding" },
+    "toolchainBinding": { "$ref": "#/$defs/binding" },
+    "buildBinding": { "$ref": "#/$defs/binding" },
+    "allowlistStatus": { "$ref": "#/$defs/status" },
+    "callTraceStatus": { "$ref": "#/$defs/status" },
+    "environmentStatus": { "$ref": "#/$defs/status" },
+    "observationsStatus": { "$ref": "#/$defs/status" },
+    "reviewStatus": { "$ref": "#/$defs/status" },
+    "gapsStatus": { "$ref": "#/$defs/status" },
+    "phase2AAuthorized": { "const": false },
+    "displayMutationAllowed": { "const": false },
+    "maxBundleBytes": { "const": 8388608 },
+    "oversizeDisposition": { "const": "INVALID_BUNDLE_SEPARATE_FAILED_RUN" },
+    "artifacts": { "type": "array", "maxItems": 256, "items": { "$ref": "#/$defs/artifact" } },
+    "totalArtifactBytes": { "type": "integer", "minimum": 0, "maximum": 8388608 },
+    "bundleContentSha256": {
+      "$ref": "#/$defs/sha256",
+      "description": "SHA-256 of domain-separated canonical JSON with this field replaced by 64 lowercase ASCII zeroes; it binds all audit metadata and the complete artifact inventory."
+    }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "reference": { "type": "string", "pattern": "^(PENDING|[A-Z0-9][A-Z0-9._:/@-]{2,255})$" },
+    "status": { "enum": ["PENDING", "CAPTURED", "VERIFIED", "REJECTED", "NOT_APPLICABLE"] },
+    "binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "reference"],
+      "properties": { "status": { "$ref": "#/$defs/status" }, "reference": { "$ref": "#/$defs/reference" } }
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifactId", "relativePath", "mediaType", "byteLength", "sha256", "truncation"],
+      "properties": {
+        "artifactId": { "type": "string", "pattern": "^[A-Z0-9][A-Z0-9._-]{2,127}$" },
+        "relativePath": { "type": "string", "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[A-Za-z0-9][A-Za-z0-9._/-]{0,239}$" },
+        "mediaType": { "type": "string", "pattern": "^[A-Za-z0-9.+-]+/[A-Za-z0-9.+-]+$" },
+        "byteLength": { "type": "integer", "minimum": 0, "maximum": 8388608 },
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "truncation": { "const": false }
+      }
+    }
+  }
+}

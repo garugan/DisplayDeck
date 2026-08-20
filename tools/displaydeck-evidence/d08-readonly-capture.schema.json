@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "DisplayDeck.D08ReadOnlyCaptureV1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "captureStatus", "probeAuthorization", "lastBootUpTimeRaw", "versionRaw", "buildNumberRaw", "tickBeforeMs", "utcBeforeFileTime", "tickAfterMs", "utcAfterFileTime", "maxBootIdentitySampleSpanMs", "maxBootUtcDelta100ns", "clockJumpRule", "result"],
+  "properties": {
+    "schemaVersion": { "const": "D08-READONLY-CAPTURE-V1" },
+    "captureStatus": { "enum": ["TEMPLATE", "PENDING", "CAPTURED"] },
+    "probeAuthorization": { "enum": ["NOT_AUTHORIZED", "READ_ONLY_AUTHORIZED"] },
+    "lastBootUpTimeRaw": { "type": "string", "pattern": "^(UNSET|[1-9][0-9]{3}[0-9]{10}\\.[0-9]{6}[+-][0-9]{3})$" },
+    "versionRaw": { "type": "string", "pattern": "^(UNSET|[1-9][0-9]{0,4}\\.[0-9]{1,5}\\.[0-9]{1,10})$" },
+    "buildNumberRaw": { "type": "string", "pattern": "^(UNSET|(0|[1-9][0-9]{0,9}))$" },
+    "tickBeforeMs": { "type": "string", "pattern": "^(UNSET|[0-9a-f]{16})$" },
+    "utcBeforeFileTime": { "type": "string", "pattern": "^(UNSET|[0-9a-f]{16})$" },
+    "tickAfterMs": { "type": "string", "pattern": "^(UNSET|[0-9a-f]{16})$" },
+    "utcAfterFileTime": { "type": "string", "pattern": "^(UNSET|[0-9a-f]{16})$" },
+    "maxBootIdentitySampleSpanMs": { "const": "UNSET" },
+    "maxBootUtcDelta100ns": { "const": "UNSET" },
+    "clockJumpRule": { "const": "UNSET" },
+    "result": { "enum": ["PENDING", "REJECT_NO_AUTHORITY", "REJECT_CROSS_CHECK", "ACCEPTANCE_NOT_AUTHORIZED"] }
+  }
+}

@@ -1,0 +1,1 @@
+{"schema":"DecisionJournalPostCreateCheckpointV1","vectorId":"DJV1-N-006","recordSha256":"b88d7b1c57b94d1f7f349a2292937cd3faf3b26659ebc7703ca492aefe97c8a2","checkpointPresent":false,"classification":"REJECT_UNBOUND_FRESH_FILE","actionCounts":{"fileWrite":0,"displayMutation":0}}

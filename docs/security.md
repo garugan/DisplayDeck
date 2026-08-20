@@ -1,7 +1,7 @@
 # DisplayDeck セキュリティ設計
 
-最終更新: 2026-08-05  
-状態: Tauri 2向け設計案。設定作成・実装・脅威検証は未承認。
+最終更新: 2026-08-13
+状態: Tauri 2向け設計案。exploratory read-only CLI Step 1〜8は実装・Windows実機観測済みだが、Phase 1A closure、Phase 2A以降のsecurity artifact/実装/脅威検証、display mutationは未承認。
 
 ## 1. セキュリティ目標
 
@@ -215,12 +215,16 @@ Tauri公式sidecar文書はfrontendからspawnするpermissionも説明するが
 ### 8.3 Cross-sessionとmachine maintenance
 
 - mutation watchdogは`Global\\` machine maintenance/mutation gateをtransaction全期間保持し、trusted display digestのper-display lock、owner SID/logonのlocal recovery lockを順に取得する。lock名へfrontend値を連結しない。
-- named objectはdefault DACLに依存せず、standard user runtime、別interactive user、elevated installer、SYSTEMに必要な最小accessをexact SDDLで固定する。別interactive userに他ownerのrecovery journal read/write権限は与えない。elevated trusted installer/updater/repair/uninstallにはmaintenance terminal照合用read/synchronizeだけを候補とし、write/restore権限は与えない。read不能時はmaintenanceを拒否する。
+- named objectはdefault DACLに依存せず、standard user runtime、別interactive user、SYSTEMに必要な最小accessをexact SDDLで固定する。別interactive userに他ownerのrecovery journal read/write権限は与えない。named-object exact SDDLはPhase 2A evidence pendingで、成立しなければmaintenance/mutationを拒否する。
+- ownerのper-user WALに対しては、SYSTEM maintenance actorへterminal照合用read/synchronizeだけを候補とし、write/restore権限は与えない。D05/D06のmachine fileとper-user WALのACLを混同せず、per-user WAL権限を拡張しない。
+- D05/D06 policy-approved file DACL candidateはowner=`SYSTEM`、protected DACL、inherited ACEなしである。maskは`R=0x00120089`、`RW_SLOT=0x0012008B`、`DIR_TRAVERSE=0x001200A8`、`FA=0x001F01FF`とし、machine-data directoryは`SYSTEM:FA / Administrators:R / designated runtime SID:DIR_TRAVERSE`、`MachineActorRecordV1`は`SYSTEM:FA / Administrators:R / designated runtime SID:RW_SLOT`、`MachineActorProvisionRecordV1`は`SYSTEM:FA / Administrators:R / designated runtime SID:R`のcanonical orderだけを許す。creator/maintenance writerはSYSTEM token、runtime writerはinstallerがtrusted console token/session observationから固定したsingle designated SIDだけである。
+- `Users`、`Authenticated Users`、`INTERACTIVE`、`Everyone`、`CREATOR_OWNER`、inherited ACE、runtime SIDへのappend/EA/attribute/delete/ACL/owner/SACL変更権限を禁止する。別SID、missing/invalid ProvisionRecord、owner SID digest mismatchはread-only inspectionだけに留める。Administrator/SYSTEM privilegeによるOS-level bypassはこのDACLが防ぐthreatではない。
+- D07のdirectory anchor / reparse / file identity / volume / filesystem / attribute / hardlink / ADS predicateをdocumented handle/APIでrace-resistantに証明できないcellは`DIRECTORY_ANCHOR_UNPROVEN`として、provision create/resume、storage write、mutationを0件にする。final resolved pathだけをparent-chain proofとして扱わない。
 - current access tokenのcanonical SID、authentication/logon LUID、Windows session ID、active-console identityをtrusted Rustが取得する。React、journal、environmentからowner identityを受け取らない。
 - initial mutationは唯一のlocal active-console interactive logonだけに限定する。RDP、second logon、Fast User Switching、session notificationの欠落/ambiguityは`KEEP_AUTHORIZED`前ならfail closed/active Revert、authorization後ならold frontend authority失効とjournal-only completion/recoveryにする。
 - protected machine-dataの`MachineActorRecordV1`は`docs/architecture.md` 19.2のcanonical fields、13 wire states、state-specific field/transition表だけを正本とし、ここで別schemaやaliasを定義しない。C0/P0/R、raw path、不要な個人情報を持たず、instance IDとprocess identityを別fieldにする。checksumはauthorizationではない。
 - machine wire `ACTIVE_INTENT`をflush/reopen/publishする前にowner WAL `PREPARED`を書かず、`ACTIVE_PREPARED/ACTIVE_WATCHDOG_READY/ACTIVE_APPLY_ARMED/ACTIVE_MUTATED`をlinked WAL/actor evidenceに合わせる。owner WAL terminal、worker/transaction actor quiescenceより先に`TERMINALIZING -> TERMINAL_CLEAN`へ進めない。UI projectionの`ACTIVE/PREPARING/CRITICAL_UNKNOWN/CLEAN/PENDING`をwire decodeに使わない。
-- elevated installer/update/repair/uninstallはmachine gateを取得し、全signed actor process、machine record、read-onlyで開いたreferenced owner WALがexact terminal-cleanである場合だけ`MAINTENANCE_ACTIVE`をdurable化してbinaryを変更する。active/pending/critical/unknown/unreadable/owner-unavailable recordでは拒否し、別admin userが他owner journalを復元しない。
+- approved SYSTEM maintenance actorはmachine gateを取得し、signed installer/update/repair/uninstall package/process identity、machine record、read-onlyで開いたreferenced owner WALがexact terminal-cleanである場合だけ`MAINTENANCE_ACTIVE`をdurable化してbinaryを変更する。elevated interactive admin tokenをSYSTEMの代替writerにしない。active/pending/critical/unknown/unreadable/owner-unavailable recordでは拒否し、別admin userが他owner journalを復元しない。
 - same-userまたは別local userがglobal gate/actor recordを使ってavailability DoSを起こす可能性は残る。初期版はunsafe maintenance/mutationよりfail-closed DoSを選び、Phase 2AでDACL/private namespace案を比較する。
 
 ### 8.4 Protocol
@@ -242,8 +246,8 @@ Tauri公式sidecar文書はfrontendからspawnするpermissionも説明するが
 
 - runtimeは`asInvoker`/standard userを第一候補とする。
 - display API failureを見て自動UAC再起動しない。
-- administrator token、service、SYSTEM、scheduled taskを初期版で要求しない。
-- per-machine installerだけがinstallation時にelevationを必要とし得る。installer elevationとruntime capabilityを分離する。
+- ordinary UI/runtime/watchdog transaction laneはadministrator token、service、SYSTEM、scheduled taskを要求しない。
+- D05/D06のinitial provisionとmachine maintenanceだけはapproved SYSTEM token laneを必要とする。per-machine installer elevationとSYSTEM actor起動/identity proof、ordinary runtime capabilityを分離し、service/scheduled-task等の具体的なSYSTEM起動方式は別承認・Phase 2A evidenceなしに採用しない。
 - runtime elevationが必要と判明した場合、attack surface、journal ownership、low/high integrity IPC、unelevated UIとの境界を再設計し、初期scopeを再承認する。
 
 ## 10. Rust `unsafe`とWindows API境界

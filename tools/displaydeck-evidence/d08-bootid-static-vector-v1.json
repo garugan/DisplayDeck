@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "D08-BOOTID-STATIC-VECTOR-V1",
+  "vectorId": "D08-BOOTID-PREIMAGE-001",
+  "purpose": "Static serialization vector only; it grants no same-boot authority.",
+  "domainAsciiWithNul": "DisplayDeck.BootId.V1\u0000",
+  "lastBootUtcFileTimeHex": "01da3c457689c000",
+  "versionMajorHex": "0000000a",
+  "versionMinorHex": "00000000",
+  "versionBuildHex": "00005867",
+  "preimageHex": "446973706c61794465636b2e426f6f7449642e56310000c08976453cda010a0000000000000067580000",
+  "expectedSha256": "e7dca2bc5b3202957314fa23315cd2520956909c547b4c52c5abd986257712a1",
+  "crossCheckThresholdStatus": "UNSET",
+  "windowsReadOnlyProbeStatus": "NOT_RUN_STATIC_VECTOR_ONLY",
+  "phase2AAuthorized": false,
+  "displayMutationAllowed": false
+}

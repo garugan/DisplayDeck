@@ -30,6 +30,20 @@ Before revised-design approval, the only project artifacts that may be created o
 
 `docs/design-review.md` and `docs/review-resolution.md` are immutable historical records unless a human owner explicitly asks to amend the record. If a pre-approval request crosses this boundary, stop and request explicit authorization.
 
+### Recorded limited exception — freeze-evidence scaffold only
+
+The human owner subsequently authorized one narrow, non-product exception for
+the DD-FR-002 freeze-evidence lane: deterministic full-byte fixture/hash/index
+generation, a dependency-free evidence-format validator, and D07/D08/G1A
+evidence templates/procedures. This exception is historical and scoped to the
+versioned `fixtures/dd-fr-002-wire-v1-candidate-*` candidates and `tools/`
+evidence artifacts; it
+does not authorize application/runtime source, Tauri/watchdog/worker
+integration, a runtime serializer or WAL, fixture execution against product
+code, a fault harness, Windows probing beyond separately authorized read-only
+evidence, Phase 2A, or any display mutation. The normal gate and all other
+prohibitions remain in force.
+
 ## Fixed technology and product boundaries
 
 - The product is a Windows-only desktop application targeting Windows 10 and Windows 11. Exact editions, builds, CPU architectures, support status, GPU/driver/display cells, and release qualification remain explicit decision gates.

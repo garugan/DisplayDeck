@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "DisplayDeck.D07NoGoPredicateV1",
+  "title": "DisplayDeck D07 fixed no-go predicate",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "evidenceStatus", "directoryAnchorClassification", "windowsProbeStatus", "requiredProofs", "requiredSideEffects", "decision"],
+  "properties": {
+    "schemaVersion": { "const": "D07-NO-GO-PREDICATE-V1" },
+    "evidenceStatus": { "const": "NO_GO_RECORDED" },
+    "directoryAnchorClassification": { "const": "DIRECTORY_ANCHOR_UNPROVEN" },
+    "windowsProbeStatus": { "const": "NOT_RUN_DIRECTORY_ANCHOR_UNPROVEN" },
+    "requiredProofs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["raceResistantDirectoryAnchorAlgorithm", "reparsePointRejection", "fileIdDaclAttributeReadback", "localFixedNtfsAndPersistentAcls"],
+      "properties": {
+        "raceResistantDirectoryAnchorAlgorithm": { "const": "UNPROVEN" },
+        "reparsePointRejection": { "const": "UNPROVEN" },
+        "fileIdDaclAttributeReadback": { "const": "UNPROVEN" },
+        "localFixedNtfsAndPersistentAcls": { "const": "UNPROVEN" }
+      }
+    },
+    "requiredSideEffects": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provisionCreate", "provisionStorageWrite", "storageWrite", "fileDelete", "fileTruncate", "displayMutation", "processLaunch"],
+      "properties": {
+        "provisionCreate": { "const": 0 },
+        "provisionStorageWrite": { "const": 0 },
+        "storageWrite": { "const": 0 },
+        "fileDelete": { "const": 0 },
+        "fileTruncate": { "const": 0 },
+        "displayMutation": { "const": 0 },
+        "processLaunch": { "const": 0 }
+      }
+    },
+    "decision": { "const": "NO_GO" }
+  }
+}
