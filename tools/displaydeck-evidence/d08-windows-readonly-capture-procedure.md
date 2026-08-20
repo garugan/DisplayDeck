@@ -8,10 +8,11 @@ overwrite an existing file. It does not create same-boot acceptance authority.
 The first reported Windows 10 `10.0.19045` sample passed the capture validator.
 Its derived, non-identifying timing summary was: sample tick span `109 ms`, UTC
 span `98.326 ms`, predicted-boot spread `10.674 ms`, and absolute WMI-to-
-predicted-boot deltas approximately `40.019..40.030 s`. A subsequent active-
-session batch passed capture and validation 5/5 with one boot tuple; its maxima
-were tick span `63 ms`, UTC span `57.072 ms`, and predicted-boot spread
-`9.562 ms`. The raw captures remain outside Git, so this is not yet a formal
+predicted-boot deltas approximately `40.019..40.030 s`. Subsequent active and
+sleep/resume batches passed capture and validation 10/10 with one boot tuple.
+Active maxima were tick span `63 ms`, UTC span `57.072 ms`, and predicted-boot
+spread `9.562 ms`; sleep/resume maxima were `63 ms`, `56.928 ms`, and
+`10.276 ms`. The raw captures remain outside Git, so this is not yet a formal
 bundled artifact or a tolerance freeze.
 
 On an authorized Windows evidence host, the capture operator records the
@@ -121,6 +122,32 @@ Write-Output "sleep/resume batch: $batch"
 Run the same aggregation block against the new `$batch`. Keep restart, Fast
 Startup, and hibernate evidence separate; no observed maximum authorizes a
 production threshold.
+
+Before rebooting, compare the last active observation with the first
+sleep/resume observation. Per-query spans alone do not prove that
+`GetTickCount64` advanced across sleep:
+
+```powershell
+$activeLast = Get-Content -Raw (Join-Path $activeBatch "sample-05.json") | ConvertFrom-Json
+$resumeFirst = Get-Content -Raw (Join-Path $batch "sample-01.json") | ConvertFrom-Json
+[Int64]$activeTick = [Convert]::ToUInt64($activeLast.tickAfterMs, 16)
+[Int64]$resumeTick = [Convert]::ToUInt64($resumeFirst.tickBeforeMs, 16)
+[Int64]$activeUtc = [Convert]::ToUInt64($activeLast.utcAfterFileTime, 16)
+[Int64]$resumeUtc = [Convert]::ToUInt64($resumeFirst.utcBeforeFileTime, 16)
+$tickAdvanceMs = $resumeTick - $activeTick
+$utcAdvanceMs = ($resumeUtc - $activeUtc) / 10000.0
+$advanceDifferenceMs = [Math]::Round([Math]::Abs($utcAdvanceMs - $tickAdvanceMs), 3)
+if ($tickAdvanceMs -le 0 -or $utcAdvanceMs -le 0) { throw "Non-positive cross-sleep advance" }
+if ($activeLast.lastBootUpTimeRaw -ne $resumeFirst.lastBootUpTimeRaw) { throw "Boot tuple changed across sleep/resume" }
+[PSCustomObject]@{
+    TickAdvanceMs = $tickAdvanceMs
+    UtcAdvanceMs = [Math]::Round($utcAdvanceMs, 3)
+    TickUtcDifferenceMs = $advanceDifferenceMs
+    BootTimeUnchanged = $true
+    ResultBefore = $activeLast.result
+    ResultAfter = $resumeFirst.result
+} | Format-List
+```
 
 The capture document is validated offline with
 `validate_d08_readonly_capture.py`. Thresholds remain `UNSET` in every
