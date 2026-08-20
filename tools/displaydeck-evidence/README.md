@@ -60,8 +60,8 @@ python3 validate_d07_no_go.py --self-test
 
 D07 remains a fail-closed No-Go unless a separately reviewed race-resistant
 anchor algorithm exists. D08 is authorized only for bounded read-only Windows
-capture; its runtime samples remain `PENDING` and all acceptance thresholds
-remain `UNSET` until that capture and human review occur.
+capture; all acceptance thresholds remain `UNSET` until that capture and human
+review occur.
 
 Validate the D08 template and the static `BootIdV1` known answer together:
 
@@ -77,3 +77,17 @@ preimage and SHA-256 with the exact `DisplayDeck.BootId.V1` domain plus one
 NUL byte. A future Windows `CAPTURED` record remains evidence only: its result
 must be one of the explicit rejection/absence-of-authority outcomes, never an
 acceptance decision.
+
+Create and validate one runtime sample from Windows PowerShell 5.1:
+
+```powershell
+$stamp = Get-Date -Format "yyyyMMdd-HHmmss"
+$capture = Join-Path $env:TEMP "displaydeck-d08-$stamp.json"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools\displaydeck-evidence\capture_d08_readonly.ps1 -OutputPath $capture
+py -3 -B tools\displaydeck-evidence\validate_d08_readonly_capture.py $capture
+```
+
+The helper reads only the two documented clock APIs and
+`Win32_OperatingSystem`. It creates one new file, refuses overwrite, leaves all
+thresholds `UNSET`, and never emits an acceptance result. Keep the raw capture
+outside Git pending evidence-owner review.

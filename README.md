@@ -826,6 +826,22 @@ Stop-Transcript
 
 期待結果は`verification=pass vectors=590 side-effects=0`、各templateの`valid`、各`self-test: pass`で、`git diff --check`は無出力です。途中で1件でも失敗した場合はそこで検証失敗とします。この手順はCandidate 04、D07 No-Go、D08 static known-answer、G1A templateを検証するもので、D08 runtime captureを実施したり`FROZEN`を承認したりするものではありません。
 
+#### D08 Windows read-only capture（別実行）
+
+D08の実機sampleは、Windows PowerShell 5.1で次を実行します。7個のraw観測だけを`%TEMP%`の新規JSONへ保存し、既存fileは上書きしません。display設定は変更せず、acceptance thresholdはすべて`UNSET`のままです。
+
+```powershell
+$stamp = Get-Date -Format "yyyyMMdd-HHmmss"
+$capture = Join-Path $env:TEMP "displaydeck-d08-$stamp.json"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools\displaydeck-evidence\capture_d08_readonly.ps1 -OutputPath $capture
+if ($LASTEXITCODE -ne 0) { throw "D08 capture failed: $LASTEXITCODE" }
+py -3 -B tools\displaydeck-evidence\validate_d08_readonly_capture.py $capture
+if ($LASTEXITCODE -ne 0) { throw "D08 validation failed: $LASTEXITCODE" }
+Get-Content -Raw $capture
+```
+
+期待結果は`captured: ...`、`valid: ...`、`valid static vector: ...`です。JSONは`captureStatus: CAPTURED`、`probeAuthorization: READ_ONLY_AUTHORIZED`、`result: ACCEPTANCE_NOT_AUTHORIZED`または明示的なrejectになり、acceptance resultは生成しません。raw captureはEvidence Owner、redaction、retention、bundle locationを承認するまでGitへ追加しません。
+
 今回の限定authorizationは、full-byte fixture、expected SHA-256、semantic manifest、artifact index、aggregate hashの生成・検証、D07 controlled filesystem/DACL evidence、D08 read-only Windows evidence、formal G1A evidence bundleの作成だけです。Phase 2A product/runtime code、Tauri/watchdog/worker統合、runtime serializer/WAL file、fault harness、display mutationは引き続き未許可です。D07は`DIRECTORY_ANCHOR_UNPROVEN / NO_GO_RECORDED`、D08は`READ_ONLY_AUTHORIZED / WINDOWS_CAPTURE_NOT_RUN`、G1Aはtemplate/validatorのみでformal result evidenceはpendingです。
 
 | Decision | 人間が決める内容 | 現在のrecommended candidate | Status |
