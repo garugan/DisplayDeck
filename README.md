@@ -1009,7 +1009,86 @@ if ($pre.versionRaw -ne $post.versionRaw -or $pre.buildNumberRaw -ne $post.build
 
 2026-08-22の実機結果はrestart capture/validator 5/5、BootTime/BootId change、tick reset、Version/Build不変、restart内boot tuple 5/5一致でした。restart batchの最大値はtick span=`110 ms`、UTC span=`96.023 ms`、predicted-boot spread=`13.977 ms`です。これはrestart境界のread-only evidenceであり、thresholdを設定せず、acceptance authorityを発行しません。
 
-今回の限定authorizationは、full-byte fixture、expected SHA-256、semantic manifest、artifact index、aggregate hashの生成・検証、D07 controlled filesystem/DACL evidence、D08 read-only Windows evidence、formal G1A evidence bundleの作成だけです。Phase 2A product/runtime code、Tauri/watchdog/worker統合、runtime serializer/WAL file、fault harness、display mutationは引き続き未許可です。D07は`DIRECTORY_ANCHOR_UNPROVEN / NO_GO_RECORDED`、D08は`READ_ONLY_AUTHORIZED / ACTIVE_SLEEP_RESTART_BATCHES_15_OF_15_IDENTITY_METRICS_CONSISTENT / CROSS_SLEEP_TICK_UTC_ADVANCE_CONSISTENT / RESTART_BOOT_BOUNDARY_CONFIRMED / TOLERANCE_EVIDENCE_PENDING`、G1Aはtemplate/validatorのみでformal result evidenceはpendingです。
+次のsupport-cell evidenceはhibernate/resumeです。事前5件を取得してfolderを記録します。helperはhibernateを開始しません。コマンド完了後、operatorがWindows UIから手動でhibernateします。HibernateがUIに存在しない場合は停止し、このlaneで`powercfg`等を使って有効化しません。
+
+```powershell
+git pull
+$label = "hibernate-pre"
+$preHibernateBatch = Join-Path $env:TEMP ("displaydeck-d08-{0}-{1}" -f $label, (Get-Date -Format "yyyyMMdd-HHmmss"))
+New-Item -ItemType Directory -Path $preHibernateBatch -ErrorAction Stop | Out-Null
+1..5 | ForEach-Object {
+    $capture = Join-Path $preHibernateBatch ("sample-{0:d2}.json" -f $_)
+    powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools\displaydeck-evidence\capture_d08_readonly.ps1 -OutputPath $capture
+    if ($LASTEXITCODE -ne 0) { throw "D08 capture failed: $LASTEXITCODE" }
+    py -3 -B tools\displaydeck-evidence\validate_d08_readonly_capture.py $capture
+    if ($LASTEXITCODE -ne 0) { throw "D08 validation failed: $LASTEXITCODE" }
+    Start-Sleep -Milliseconds 500
+}
+Write-Output "pre-hibernate batch: $preHibernateBatch"
+
+# この後、operatorがWindows UIから手動でhibernateする。
+```
+
+復帰後、DisplayDeck rootでPowerShellを開きます。新しいsessionでも動くように事前folderを再解決し、復帰後5件を取得します。
+
+```powershell
+$preHibernateBatch = Get-ChildItem $env:TEMP -Directory -Filter "displaydeck-d08-hibernate-pre-*" |
+    Sort-Object LastWriteTime -Descending |
+    Select-Object -First 1 -ExpandProperty FullName
+if ([string]::IsNullOrWhiteSpace($preHibernateBatch)) { throw "Pre-hibernate D08 batch not found" }
+
+$label = "hibernate-resume"
+$batch = Join-Path $env:TEMP ("displaydeck-d08-{0}-{1}" -f $label, (Get-Date -Format "yyyyMMdd-HHmmss"))
+New-Item -ItemType Directory -Path $batch -ErrorAction Stop | Out-Null
+1..5 | ForEach-Object {
+    $capture = Join-Path $batch ("sample-{0:d2}.json" -f $_)
+    powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools\displaydeck-evidence\capture_d08_readonly.ps1 -OutputPath $capture
+    if ($LASTEXITCODE -ne 0) { throw "D08 capture failed: $LASTEXITCODE" }
+    py -3 -B tools\displaydeck-evidence\validate_d08_readonly_capture.py $capture
+    if ($LASTEXITCODE -ne 0) { throw "D08 validation failed: $LASTEXITCODE" }
+    Start-Sleep -Milliseconds 500
+}
+Write-Output "pre-hibernate batch: $preHibernateBatch"
+Write-Output "hibernate/resume batch: $batch"
+```
+
+同じboot identityとtick/UTCのcross-hibernate advanceを比較します。比較値は観測だけで、production toleranceにはしません。
+
+```powershell
+$preCapture = Join-Path $preHibernateBatch "sample-05.json"
+$postCapture = Join-Path $batch "sample-01.json"
+$pre = Get-Content -Raw $preCapture | ConvertFrom-Json
+$post = Get-Content -Raw $postCapture | ConvertFrom-Json
+$preBootId = (py -3 -B tools\displaydeck-evidence\validate_d08_readonly_capture.py --boot-id-only $preCapture).Trim()
+if ($LASTEXITCODE -ne 0) { throw "Pre-hibernate BootId diagnostic failed" }
+$postBootId = (py -3 -B tools\displaydeck-evidence\validate_d08_readonly_capture.py --boot-id-only $postCapture).Trim()
+if ($LASTEXITCODE -ne 0) { throw "Post-hibernate BootId diagnostic failed" }
+[Int64]$preTick = [Convert]::ToUInt64($pre.tickAfterMs, 16)
+[Int64]$postTick = [Convert]::ToUInt64($post.tickBeforeMs, 16)
+[Int64]$preUtc = [Convert]::ToUInt64($pre.utcAfterFileTime, 16)
+[Int64]$postUtc = [Convert]::ToUInt64($post.utcBeforeFileTime, 16)
+$tickAdvanceMs = $postTick - $preTick
+$utcAdvanceMs = ($postUtc - $preUtc) / 10000.0
+$comparison = [PSCustomObject]@{
+    TickAdvanceMs = $tickAdvanceMs
+    UtcAdvanceMs = [Math]::Round($utcAdvanceMs, 3)
+    TickUtcDifferenceMs = [Math]::Round([Math]::Abs($utcAdvanceMs - $tickAdvanceMs), 3)
+    BootTimeUnchanged = ($pre.lastBootUpTimeRaw -eq $post.lastBootUpTimeRaw)
+    BootIdUnchanged = ($preBootId -eq $postBootId)
+    VersionBuildUnchanged = ($pre.versionRaw -eq $post.versionRaw -and $pre.buildNumberRaw -eq $post.buildNumberRaw)
+    ResultBefore = $pre.result
+    ResultAfter = $post.result
+}
+$comparison | Format-List
+if ($tickAdvanceMs -le 0 -or $utcAdvanceMs -le 0) { throw "Non-positive cross-hibernate advance" }
+if (-not $comparison.VersionBuildUnchanged) { throw "Windows build changed; use a separate evidence cell" }
+if (-not $comparison.BootTimeUnchanged -or -not $comparison.BootIdUnchanged) { throw "Hibernate changed boot identity; cell not qualified" }
+if ($pre.result -ne "ACCEPTANCE_NOT_AUTHORIZED" -or $post.result -ne "ACCEPTANCE_NOT_AUTHORIZED") { throw "Unexpected D08 result" }
+```
+
+最後に既出の5件一覧化blockを`$batch = $preHibernateBatch`とhibernate/resume `$batch`の双方へ実行します。raw captureはGitへ追加しません。
+
+今回の限定authorizationは、full-byte fixture、expected SHA-256、semantic manifest、artifact index、aggregate hashの生成・検証、D07 controlled filesystem/DACL evidence、D08 read-only Windows evidence、formal G1A evidence bundleの作成だけです。Phase 2A product/runtime code、Tauri/watchdog/worker統合、runtime serializer/WAL file、fault harness、display mutationは引き続き未許可です。D07は`DIRECTORY_ANCHOR_UNPROVEN / NO_GO_RECORDED`、D08は`READ_ONLY_AUTHORIZED / ACTIVE_SLEEP_RESTART_BATCHES_15_OF_15_IDENTITY_METRICS_CONSISTENT / CROSS_SLEEP_TICK_UTC_ADVANCE_CONSISTENT / RESTART_BOOT_BOUNDARY_CONFIRMED / HIBERNATE_EVIDENCE_PENDING / TOLERANCE_EVIDENCE_PENDING`、G1Aはtemplate/validatorのみでformal result evidenceはpendingです。
 
 | Decision | 人間が決める内容 | 現在のrecommended candidate | Status |
 | --- | --- | --- | --- |
@@ -1020,7 +1099,7 @@ if ($pre.versionRaw -ne $post.versionRaw -or $pre.buildNumberRaw -ne $post.build
 | `DD-FR-002-D05` | machine recordのruntime writer | SYSTEM creator/maintenance writerとinstaller-designated single runtime owner SIDに限定 | `POLICY_APPROVED / SPEC_CANDIDATE / BYTE_ARTIFACT_GENERATED / INDEPENDENT_STATIC_REVIEW_CLEAN / HUMAN_FREEZE_APPROVAL_PENDING` |
 | `DD-FR-002-D06` | fresh MachineActor provision | separate installer provision recordでcreate前intentとactual file-ID checkpointをdurable化し、最初のvalid maintenance intent / activeを経てowner-bound ordinary cleanへ進む | `POLICY_APPROVED / SPEC_CANDIDATE / BYTE_ARTIFACT_GENERATED / INDEPENDENT_STATIC_REVIEW_CLEAN / HUMAN_FREEZE_APPROVAL_PENDING` |
 | `DD-FR-002-D07` | directory anchor / reparse proof | documented handle/APIでrace-resistantに証明できたcellだけadmit。現時点は未証明のためNo-Go | `POLICY_APPROVED / SPEC_CANDIDATE / DIRECTORY_ANCHOR_UNPROVEN / NO_GO_RECORDED / HUMAN_FREEZE_APPROVAL_PENDING` |
-| `DD-FR-002-D08` | boot identity | stable WMI boot UTC/version/buildだけをhashし、tick/UTC cross-checkは別acceptance evidenceとして実機でtoleranceをfreeze | `POLICY_APPROVED / SPEC_CANDIDATE / READ_ONLY_AUTHORIZED / ACTIVE_SLEEP_RESTART_BATCHES_15_OF_15_IDENTITY_METRICS_CONSISTENT / CROSS_SLEEP_TICK_UTC_ADVANCE_CONSISTENT / RESTART_BOOT_BOUNDARY_CONFIRMED / TOLERANCE_EVIDENCE_PENDING / HUMAN_FREEZE_APPROVAL_PENDING` |
+| `DD-FR-002-D08` | boot identity | stable WMI boot UTC/version/buildだけをhashし、tick/UTC cross-checkは別acceptance evidenceとして実機でtoleranceをfreeze | `POLICY_APPROVED / SPEC_CANDIDATE / READ_ONLY_AUTHORIZED / ACTIVE_SLEEP_RESTART_BATCHES_15_OF_15_IDENTITY_METRICS_CONSISTENT / CROSS_SLEEP_TICK_UTC_ADVANCE_CONSISTENT / RESTART_BOOT_BOUNDARY_CONFIRMED / HIBERNATE_EVIDENCE_PENDING / TOLERANCE_EVIDENCE_PENDING / HUMAN_FREEZE_APPROVAL_PENDING` |
 
 D01〜D08の方針承認と今回の統合freeze-evidence authorizationは、full-byte artifact生成を許可しますが、`FROZEN`、artifact approval、Phase 2A authorizationではありません。CANDIDATE-04のfull-byte生成と独立static reviewは完了しましたが、D07/D08/G1A evidence、Reviewer/Approver、immutable approval referenceが揃うまでcode値やDACL候補の実装正本にしません。D05によりV1のmutation writerはinstaller-bound single runtime ownerだけで、別ownerへの変更はelevated maintenance/rebindを必要とします。
 
