@@ -12,8 +12,10 @@ predicted-boot deltas approximately `40.019..40.030 s`. Subsequent active and
 sleep/resume batches passed capture and validation 10/10 with one boot tuple.
 Active maxima were tick span `63 ms`, UTC span `57.072 ms`, and predicted-boot
 spread `9.562 ms`; sleep/resume maxima were `63 ms`, `56.928 ms`, and
-`10.276 ms`. The raw captures remain outside Git, so this is not yet a formal
-bundled artifact or a tolerance freeze.
+`10.276 ms`. Across the operator-controlled sleep interval, tick advanced
+`589672 ms`, UTC advanced `589666.412 ms`, their difference was `5.588 ms`,
+and BootTime remained unchanged. The raw captures remain outside Git, so this
+is not yet a formal bundled artifact or a tolerance freeze.
 
 On an authorized Windows evidence host, the capture operator records the
 following order in the D08 capture schema:
