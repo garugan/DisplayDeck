@@ -144,6 +144,39 @@ def validate_capture(capture):
             fail("captured tick order is inconsistent; record REJECT_CROSS_CHECK instead")
 
 
+def capture_boot_id(capture):
+    """Compute the candidate BootId digest without granting boot authority."""
+    if capture["captureStatus"] != "CAPTURED":
+        fail("BootId diagnostic requires a CAPTURED record")
+    value = capture["lastBootUpTimeRaw"]
+    local = datetime.datetime.strptime(value[:21], "%Y%m%d%H%M%S.%f")
+    offset_minutes = int(value[22:]) * (1 if value[21] == "+" else -1)
+    local = local.replace(tzinfo=datetime.timezone(datetime.timedelta(minutes=offset_minutes)))
+    utc = local.astimezone(datetime.timezone.utc)
+    epoch = datetime.datetime(1601, 1, 1, tzinfo=datetime.timezone.utc)
+    delta = utc - epoch
+    filetime = (
+        (delta.days * 86400 + delta.seconds) * 10_000_000
+        + delta.microseconds * 10
+    )
+    version = [int(part) for part in capture["versionRaw"].split(".")]
+    build = int(capture["buildNumberRaw"])
+    if version[2] != build:
+        fail("BootId diagnostic rejects Version/BuildNumber disagreement")
+    if not 0 <= filetime <= 0xFFFFFFFFFFFFFFFF or any(
+        not 0 <= part <= 0xFFFFFFFF for part in version
+    ):
+        fail("BootId diagnostic input is outside the candidate integer widths")
+    preimage = (
+        DOMAIN
+        + filetime.to_bytes(8, "little")
+        + version[0].to_bytes(4, "little")
+        + version[1].to_bytes(4, "little")
+        + version[2].to_bytes(4, "little")
+    )
+    return hashlib.sha256(preimage).hexdigest()
+
+
 def static_preimage(vector):
     return (
         DOMAIN
@@ -218,6 +251,12 @@ def self_test():
     false_acceptance["result"] = "ACCEPT"
     rejects(lambda: validate_capture(false_acceptance), "false acceptance")
 
+    known_capture = dict(false_acceptance)
+    known_capture["result"] = "ACCEPTANCE_NOT_AUTHORIZED"
+    validate_capture(known_capture)
+    if capture_boot_id(known_capture) != "e841492d7df613888c8cde65ad2dd9c3fc4f3ddad67abb2804178b2aea41dc93":
+        fail("captured BootId known answer mismatch")
+
     altered_digest = dict(vector)
     altered_digest["expectedSha256"] = "0" * 64
     rejects(lambda: validate_static_vector(altered_digest), "altered static digest")
@@ -233,15 +272,23 @@ def main():
         help="D08 static BootId known-answer JSON",
     )
     parser.add_argument("--self-test", action="store_true")
+    parser.add_argument(
+        "--boot-id-only", action="store_true",
+        help="print the candidate BootId digest for a valid CAPTURED record",
+    )
     args = parser.parse_args()
     if args.self_test:
-        if args.capture is not None:
-            parser.error("--self-test does not take a capture")
+        if args.capture is not None or args.boot_id_only:
+            parser.error("--self-test does not take a capture or --boot-id-only")
         self_test()
         return
     if args.capture is None:
         parser.error("capture is required")
-    validate_capture(load_json(args.capture))
+    capture = load_json(args.capture)
+    validate_capture(capture)
+    if args.boot_id_only:
+        print(capture_boot_id(capture))
+        return
     validate_static_vector(load_json(args.static_vector))
     print("valid: " + str(args.capture))
     print("valid static vector: " + str(args.static_vector))

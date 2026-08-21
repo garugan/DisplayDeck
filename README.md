@@ -938,6 +938,68 @@ if ($activeLast.lastBootUpTimeRaw -ne $resumeFirst.lastBootUpTimeRaw) { throw "B
 
 この比較はproduction toleranceを設定せず、観測値だけを出力します。
 
+cross-sleep比較が完了した後のreboot検証では、operatorが手動でWindowsを再起動します。再起動前に現在のfolderを表示して控えます。
+
+```powershell
+Write-Output "pre-reboot batch: $batch"
+# この後、operatorが手動でWindowsを再起動する。
+```
+
+再起動後、新しいPowerShellで次を実行します。最新のsleep/resume folderをpre-reboot evidenceとして再解決し、restart後に5件を取得します。
+
+```powershell
+git pull
+$preRebootBatch = Get-ChildItem $env:TEMP -Directory -Filter "displaydeck-d08-sleep-resume-*" |
+    Sort-Object LastWriteTime -Descending |
+    Select-Object -First 1 -ExpandProperty FullName
+if ([string]::IsNullOrWhiteSpace($preRebootBatch)) { throw "Pre-reboot D08 batch not found" }
+
+$label = "restart"
+$batch = Join-Path $env:TEMP ("displaydeck-d08-{0}-{1}" -f $label, (Get-Date -Format "yyyyMMdd-HHmmss"))
+New-Item -ItemType Directory -Path $batch -ErrorAction Stop | Out-Null
+1..5 | ForEach-Object {
+    $capture = Join-Path $batch ("sample-{0:d2}.json" -f $_)
+    powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools\displaydeck-evidence\capture_d08_readonly.ps1 -OutputPath $capture
+    if ($LASTEXITCODE -ne 0) { throw "D08 capture failed: $LASTEXITCODE" }
+    py -3 -B tools\displaydeck-evidence\validate_d08_readonly_capture.py $capture
+    if ($LASTEXITCODE -ne 0) { throw "D08 validation failed: $LASTEXITCODE" }
+    Start-Sleep -Milliseconds 500
+}
+Write-Output "pre-reboot batch: $preRebootBatch"
+Write-Output "restart batch: $batch"
+```
+
+pre/post digestとboot tupleを比較します。restart中にWindows updateが入ってVersion/Buildが変わった場合は、同じsupport cellのevidenceへ混ぜず停止します。
+
+```powershell
+$preCapture = Join-Path $preRebootBatch "sample-05.json"
+$postCapture = Join-Path $batch "sample-01.json"
+$pre = Get-Content -Raw $preCapture | ConvertFrom-Json
+$post = Get-Content -Raw $postCapture | ConvertFrom-Json
+$preBootId = (py -3 -B tools\displaydeck-evidence\validate_d08_readonly_capture.py --boot-id-only $preCapture).Trim()
+if ($LASTEXITCODE -ne 0) { throw "Pre-reboot BootId diagnostic failed" }
+$postBootId = (py -3 -B tools\displaydeck-evidence\validate_d08_readonly_capture.py --boot-id-only $postCapture).Trim()
+if ($LASTEXITCODE -ne 0) { throw "Post-reboot BootId diagnostic failed" }
+if ($pre.lastBootUpTimeRaw -eq $post.lastBootUpTimeRaw) { throw "BootTime did not change across restart" }
+if ($preBootId -eq $postBootId) { throw "BootIdV1 did not change across restart" }
+if ($pre.versionRaw -ne $post.versionRaw -or $pre.buildNumberRaw -ne $post.buildNumberRaw) { throw "Windows build changed; use a separate evidence cell" }
+[Int64]$preTick = [Convert]::ToUInt64($pre.tickAfterMs, 16)
+[Int64]$postTick = [Convert]::ToUInt64($post.tickBeforeMs, 16)
+[PSCustomObject]@{
+    BootTimeChanged = $true
+    BootIdChanged = $true
+    Version = $post.versionRaw
+    Build = $post.buildNumberRaw
+    TickResetObserved = ($postTick -lt $preTick)
+    PreBootId = $preBootId
+    PostBootId = $postBootId
+    ResultBefore = $pre.result
+    ResultAfter = $post.result
+} | Format-List
+```
+
+最後に直前の5件一覧化blockをrestart `$batch`へ実行します。`BootIdV1`出力はdiagnosticであり、same-boot acceptance authorityではありません。
+
 今回の限定authorizationは、full-byte fixture、expected SHA-256、semantic manifest、artifact index、aggregate hashの生成・検証、D07 controlled filesystem/DACL evidence、D08 read-only Windows evidence、formal G1A evidence bundleの作成だけです。Phase 2A product/runtime code、Tauri/watchdog/worker統合、runtime serializer/WAL file、fault harness、display mutationは引き続き未許可です。D07は`DIRECTORY_ANCHOR_UNPROVEN / NO_GO_RECORDED`、D08は`READ_ONLY_AUTHORIZED / ACTIVE_SLEEP_BATCHES_10_OF_10_IDENTITY_METRICS_CONSISTENT / CROSS_SLEEP_ADVANCE_REVIEW_PENDING / RESTART_EVIDENCE_PENDING / TOLERANCE_EVIDENCE_PENDING`、G1Aはtemplate/validatorのみでformal result evidenceはpendingです。
 
 | Decision | 人間が決める内容 | 現在のrecommended candidate | Status |

@@ -91,3 +91,13 @@ The helper reads only the two documented clock APIs and
 `Win32_OperatingSystem`. It creates one new file, refuses overwrite, leaves all
 thresholds `UNSET`, and never emits an acceptance result. Keep the raw capture
 outside Git pending evidence-owner review.
+
+Print the candidate `BootIdV1` digest for a validated runtime capture when
+comparing pre/post reboot evidence:
+
+```powershell
+py -3 -B tools\displaydeck-evidence\validate_d08_readonly_capture.py --boot-id-only $capture
+```
+
+This is a diagnostic digest only. It does not issue same-boot authority or set
+an acceptance threshold.

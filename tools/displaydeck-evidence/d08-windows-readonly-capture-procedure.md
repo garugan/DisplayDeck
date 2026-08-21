@@ -149,6 +149,60 @@ if ($activeLast.lastBootUpTimeRaw -ne $resumeFirst.lastBootUpTimeRaw) { throw "B
 } | Format-List
 ```
 
+After the cross-sleep comparison succeeds, the operator records the current
+batch path and manually restarts Windows. The helper never initiates restart.
+After restart, resolve the latest sleep/resume batch, capture five new samples,
+and compare the candidate BootId diagnostics:
+
+```powershell
+git pull
+$preRebootBatch = Get-ChildItem $env:TEMP -Directory -Filter "displaydeck-d08-sleep-resume-*" |
+    Sort-Object LastWriteTime -Descending |
+    Select-Object -First 1 -ExpandProperty FullName
+if ([string]::IsNullOrWhiteSpace($preRebootBatch)) { throw "Pre-reboot D08 batch not found" }
+
+$label = "restart"
+$batch = Join-Path $env:TEMP ("displaydeck-d08-{0}-{1}" -f $label, (Get-Date -Format "yyyyMMdd-HHmmss"))
+New-Item -ItemType Directory -Path $batch -ErrorAction Stop | Out-Null
+1..5 | ForEach-Object {
+    $capture = Join-Path $batch ("sample-{0:d2}.json" -f $_)
+    powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools\displaydeck-evidence\capture_d08_readonly.ps1 -OutputPath $capture
+    if ($LASTEXITCODE -ne 0) { throw "D08 capture failed: $LASTEXITCODE" }
+    py -3 -B tools\displaydeck-evidence\validate_d08_readonly_capture.py $capture
+    if ($LASTEXITCODE -ne 0) { throw "D08 validation failed: $LASTEXITCODE" }
+    Start-Sleep -Milliseconds 500
+}
+
+$preCapture = Join-Path $preRebootBatch "sample-05.json"
+$postCapture = Join-Path $batch "sample-01.json"
+$pre = Get-Content -Raw $preCapture | ConvertFrom-Json
+$post = Get-Content -Raw $postCapture | ConvertFrom-Json
+$preBootId = (py -3 -B tools\displaydeck-evidence\validate_d08_readonly_capture.py --boot-id-only $preCapture).Trim()
+if ($LASTEXITCODE -ne 0) { throw "Pre-reboot BootId diagnostic failed" }
+$postBootId = (py -3 -B tools\displaydeck-evidence\validate_d08_readonly_capture.py --boot-id-only $postCapture).Trim()
+if ($LASTEXITCODE -ne 0) { throw "Post-reboot BootId diagnostic failed" }
+if ($pre.lastBootUpTimeRaw -eq $post.lastBootUpTimeRaw) { throw "BootTime did not change across restart" }
+if ($preBootId -eq $postBootId) { throw "BootIdV1 did not change across restart" }
+if ($pre.versionRaw -ne $post.versionRaw -or $pre.buildNumberRaw -ne $post.buildNumberRaw) { throw "Windows build changed; use a separate evidence cell" }
+[Int64]$preTick = [Convert]::ToUInt64($pre.tickAfterMs, 16)
+[Int64]$postTick = [Convert]::ToUInt64($post.tickBeforeMs, 16)
+[PSCustomObject]@{
+    BootTimeChanged = $true
+    BootIdChanged = $true
+    Version = $post.versionRaw
+    Build = $post.buildNumberRaw
+    TickResetObserved = ($postTick -lt $preTick)
+    PreBootId = $preBootId
+    PostBootId = $postBootId
+    ResultBefore = $pre.result
+    ResultAfter = $post.result
+} | Format-List
+```
+
+Run the five-sample aggregation block against the restart `$batch`. If an OS
+update changes Version/Build, stop and retain it as a separate evidence cell.
+The printed BootId is diagnostic only and does not grant boot authority.
+
 The capture document is validated offline with
 `validate_d08_readonly_capture.py`. Thresholds remain `UNSET` in every
 document under this authorization. A completed Windows sample can only state
