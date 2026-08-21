@@ -14,8 +14,13 @@ Active maxima were tick span `63 ms`, UTC span `57.072 ms`, and predicted-boot
 spread `9.562 ms`; sleep/resume maxima were `63 ms`, `56.928 ms`, and
 `10.276 ms`. Across the operator-controlled sleep interval, tick advanced
 `589672 ms`, UTC advanced `589666.412 ms`, their difference was `5.588 ms`,
-and BootTime remained unchanged. The raw captures remain outside Git, so this
-is not yet a formal bundled artifact or a tolerance freeze.
+and BootTime remained unchanged. A subsequent full restart batch passed 5/5:
+BootTime and the diagnostic BootId changed across restart, tick reset was
+observed, version/build remained `10.0.19045`/`19045`, and the new boot tuple
+was stable across all five samples. Restart maxima were tick span `110 ms`, UTC
+span `96.023 ms`, and predicted-boot spread `13.977 ms`. All results remained
+`ACCEPTANCE_NOT_AUTHORIZED`. The raw captures remain outside Git, so this is
+not yet a formal bundled artifact or a tolerance freeze.
 
 On an authorized Windows evidence host, the capture operator records the
 following order in the D08 capture schema:
@@ -94,8 +99,15 @@ $rows = Get-ChildItem "$batch\sample-*.json" -File | Sort-Object Name | ForEach-
 }
 $rows | Format-Table -AutoSize
 if (@($rows).Count -ne 5) { throw "Expected 5 D08 samples" }
-if (@($rows | Select-Object BootTime, Version, Build -Unique).Count -ne 1) { throw "D08 boot tuple changed within active batch" }
+if (@($rows | Select-Object BootTime, Version, Build -Unique).Count -ne 1) { throw "D08 boot tuple changed within batch" }
 if (@($rows | Where-Object Result -ne "ACCEPTANCE_NOT_AUTHORIZED").Count -ne 0) { throw "Unexpected D08 result" }
+[PSCustomObject]@{
+    Samples = @($rows).Count
+    MaxTickSpanMs = ($rows | Measure-Object TickSpanMs -Maximum).Maximum
+    MaxUtcSpanMs = ($rows | Measure-Object UtcSpanMs -Maximum).Maximum
+    MaxPredictedBootSpreadMs = ($rows | Measure-Object PredictedBootSpreadMs -Maximum).Maximum
+    BootTupleStable = $true
+} | Format-List
 ```
 
 The next bounded scenario is a five-sample batch after an operator-controlled
