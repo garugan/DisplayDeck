@@ -1092,6 +1092,183 @@ if ($pre.result -ne "ACCEPTANCE_NOT_AUTHORIZED" -or $post.result -ne "ACCEPTANCE
 
 2026-08-22の実機結果はhibernate前後ともcapture/validator/集計が5/5で、BootTime、diagnostic BootId、Version/Buildは不変でした。hibernate前の最大値はtick span=`63 ms`、UTC span=`53.499 ms`、predicted-boot spread=`12.788 ms`、復帰後は`63 ms`、`52.283 ms`、`12.335 ms`でした。cross-hibernate intervalはtick=`15282 ms`、UTC=`15286.607 ms`、差=`4.607 ms`です。これは一つの実機cellのread-only observationであり、production thresholdやsame-boot acceptance authorityではありません。
 
+##### Fast Startup実機確認（次に実行する手順）
+
+目的は、Fast Startupが有効なWindows 10で通常の`Shut down`と電源投入を跨いだとき、D08のBootTime / diagnostic BootId / tickがどう観測されるかを記録することです。Microsoftの説明ではFast Startupはkernel sessionをhibernateして通常のshutdown後の起動を高速化し、`Restart`には適用されません。そのため、この手順で`Restart`、`shutdown.exe`、Shiftを押しながらのshutdownは使いません。[Microsoft Learn: Fast Startup](https://learn.microsoft.com/en-us/troubleshoot/windows-client/setup-upgrade-and-drivers/fast-startup-causes-system-hibernation-shutdown-fail)、[Microsoft Support: Shut down](https://support.microsoft.com/en-us/windows/shut-down-turn-off-your-pc-893fd089-c851-71c7-af3e-63e159681b21)
+
+この手順はFast Startupやhibernate設定を変更しません。helperもshutdownや電源投入を行いません。実行前に作業中のfileを保存してください。
+
+1. **Fast Startupが現在有効か目視確認する**
+
+   Control Panel → Hardware and Sound → Power Options → Choose what the power buttons do を開き、Shutdown settingsの`Turn on fast startup (recommended)`がチェック済みか見るだけにします。チェック済みなら画面を閉じます。未チェック、項目なし、状態不明なら停止し、チェック変更、`Change settings that are currently unavailable`、`powercfg`、registry操作は行いません。
+
+   DisplayDeck rootのPowerShellで、目視結果を確認してから続行します。
+
+```powershell
+$fastStartupObserved = Read-Host 'Fast Startupがチェック済みなら ENABLED と入力'
+if ($fastStartupObserved -cne 'ENABLED') { throw 'Fast Startup enabled state was not confirmed; stop without changing settings' }
+```
+
+2. **shutdown前の5件を取得する**
+
+```powershell
+git pull
+$label = "fast-startup-pre"
+$preFastStartupBatch = Join-Path $env:TEMP ("displaydeck-d08-{0}-{1}" -f $label, (Get-Date -Format "yyyyMMdd-HHmmss"))
+New-Item -ItemType Directory -Path $preFastStartupBatch -ErrorAction Stop | Out-Null
+1..5 | ForEach-Object {
+    $capture = Join-Path $preFastStartupBatch ("sample-{0:d2}.json" -f $_)
+    powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools\displaydeck-evidence\capture_d08_readonly.ps1 -OutputPath $capture
+    if ($LASTEXITCODE -ne 0) { throw "D08 capture failed: $LASTEXITCODE" }
+    py -3 -B tools\displaydeck-evidence\validate_d08_readonly_capture.py $capture
+    if ($LASTEXITCODE -ne 0) { throw "D08 validation failed: $LASTEXITCODE" }
+    Start-Sleep -Milliseconds 500
+}
+Write-Output "pre-Fast-Startup batch: $preFastStartupBatch"
+```
+
+期待結果は5件すべての`captured: ...`、`valid: ...`、`valid static vector: ...`です。1件でも失敗したらshutdownへ進みません。
+
+3. **operatorが通常のshutdownと電源投入を行う**
+
+   PowerShellに表示されたpre-folderを控え、Start → Power → Shut downを選びます。完全に電源が切れた後、電源ボタンで起動します。`Restart`やshutdown commandは使いません。
+
+4. **起動後の5件を取得する**
+
+   Windows起動後、DisplayDeck rootで新しいPowerShellを開き、次を実行します。
+
+```powershell
+git pull
+$preFastStartupBatch = Get-ChildItem $env:TEMP -Directory -Filter "displaydeck-d08-fast-startup-pre-*" |
+    Sort-Object LastWriteTime -Descending |
+    Select-Object -First 1 -ExpandProperty FullName
+if ([string]::IsNullOrWhiteSpace($preFastStartupBatch)) { throw "Pre-Fast-Startup D08 batch not found" }
+
+$label = "fast-startup-post"
+$postFastStartupBatch = Join-Path $env:TEMP ("displaydeck-d08-{0}-{1}" -f $label, (Get-Date -Format "yyyyMMdd-HHmmss"))
+New-Item -ItemType Directory -Path $postFastStartupBatch -ErrorAction Stop | Out-Null
+1..5 | ForEach-Object {
+    $capture = Join-Path $postFastStartupBatch ("sample-{0:d2}.json" -f $_)
+    powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools\displaydeck-evidence\capture_d08_readonly.ps1 -OutputPath $capture
+    if ($LASTEXITCODE -ne 0) { throw "D08 capture failed: $LASTEXITCODE" }
+    py -3 -B tools\displaydeck-evidence\validate_d08_readonly_capture.py $capture
+    if ($LASTEXITCODE -ne 0) { throw "D08 validation failed: $LASTEXITCODE" }
+    Start-Sleep -Milliseconds 500
+}
+Write-Output "pre-Fast-Startup batch: $preFastStartupBatch"
+Write-Output "post-Fast-Startup batch: $postFastStartupBatch"
+```
+
+5. **shutdown前後を比較する**
+
+   この比較はsame bootかnew bootかを先に決め打ちしません。BootTime / BootId / tickが全部同じ分類を示す場合だけ結果を残し、混在した場合はfail closedにします。
+
+```powershell
+$preCapture = Join-Path $preFastStartupBatch "sample-05.json"
+$postCapture = Join-Path $postFastStartupBatch "sample-01.json"
+$pre = Get-Content -Raw $preCapture | ConvertFrom-Json
+$post = Get-Content -Raw $postCapture | ConvertFrom-Json
+$preBootId = (py -3 -B tools\displaydeck-evidence\validate_d08_readonly_capture.py --boot-id-only $preCapture).Trim()
+if ($LASTEXITCODE -ne 0) { throw "Pre-Fast-Startup BootId diagnostic failed" }
+$postBootId = (py -3 -B tools\displaydeck-evidence\validate_d08_readonly_capture.py --boot-id-only $postCapture).Trim()
+if ($LASTEXITCODE -ne 0) { throw "Post-Fast-Startup BootId diagnostic failed" }
+
+[Int64]$preTick = [Convert]::ToUInt64($pre.tickAfterMs, 16)
+[Int64]$postTick = [Convert]::ToUInt64($post.tickBeforeMs, 16)
+[Int64]$preUtc = [Convert]::ToUInt64($pre.utcAfterFileTime, 16)
+[Int64]$postUtc = [Convert]::ToUInt64($post.utcBeforeFileTime, 16)
+$bootTimeChanged = ($pre.lastBootUpTimeRaw -ne $post.lastBootUpTimeRaw)
+$bootIdChanged = ($preBootId -ne $postBootId)
+$tickResetObserved = ($postTick -lt $preTick)
+$utcAdvanceMs = ($postUtc - $preUtc) / 10000.0
+
+if (-not $bootTimeChanged -and -not $bootIdChanged -and -not $tickResetObserved) {
+    $classification = "KERNEL_SESSION_CONTINUITY_OBSERVED"
+    $tickAdvanceMs = $postTick - $preTick
+    $tickUtcDifferenceMs = [Math]::Round([Math]::Abs($utcAdvanceMs - $tickAdvanceMs), 3)
+} elseif ($bootTimeChanged -and $bootIdChanged -and $tickResetObserved) {
+    $classification = "NEW_BOOT_BOUNDARY_OBSERVED"
+    $tickAdvanceMs = $null
+    $tickUtcDifferenceMs = $null
+} else {
+    $classification = "MIXED_BOOT_EVIDENCE_REJECT"
+    $tickAdvanceMs = $null
+    $tickUtcDifferenceMs = $null
+}
+
+$comparison = [PSCustomObject]@{
+    Classification = $classification
+    BootTimeChanged = $bootTimeChanged
+    BootIdChanged = $bootIdChanged
+    TickResetObserved = $tickResetObserved
+    TickAdvanceMs = $tickAdvanceMs
+    UtcAdvanceMs = [Math]::Round($utcAdvanceMs, 3)
+    TickUtcDifferenceMs = $tickUtcDifferenceMs
+    VersionBuildUnchanged = ($pre.versionRaw -eq $post.versionRaw -and $pre.buildNumberRaw -eq $post.buildNumberRaw)
+    ResultBefore = $pre.result
+    ResultAfter = $post.result
+}
+$comparison | Format-List
+
+if ($utcAdvanceMs -le 0) { throw "Non-positive Fast Startup UTC advance" }
+if (-not $comparison.VersionBuildUnchanged) { throw "Windows build changed; use a separate evidence cell" }
+if ($classification -eq "MIXED_BOOT_EVIDENCE_REJECT") { throw "Fast Startup boot evidence was mixed; cell not qualified" }
+if ($classification -eq "KERNEL_SESSION_CONTINUITY_OBSERVED" -and $tickAdvanceMs -le 0) { throw "Non-positive Fast Startup tick advance" }
+if ($pre.result -ne "ACCEPTANCE_NOT_AUTHORIZED" -or $post.result -ne "ACCEPTANCE_NOT_AUTHORIZED") { throw "Unexpected D08 result" }
+```
+
+期待するのは、例外が出ず、`Classification`が`KERNEL_SESSION_CONTINUITY_OBSERVED`または`NEW_BOOT_BOUNDARY_OBSERVED`のどちらか一つになることです。この結果だけではFast Startup support、production tolerance、same-boot authorityを承認しません。
+
+6. **shutdown前後の各5件を集計する**
+
+   次を一度だけ実行します。結果はPowerShell画面へ表示され、fileには自動保存されません。
+
+```powershell
+$batches = @(
+    [PSCustomObject]@{ Name = "fast-startup-pre"; Path = $preFastStartupBatch },
+    [PSCustomObject]@{ Name = "fast-startup-post"; Path = $postFastStartupBatch }
+)
+
+foreach ($item in $batches) {
+    $rows = Get-ChildItem "$($item.Path)\sample-*.json" -File | Sort-Object Name | ForEach-Object {
+        $j = Get-Content -Raw $_.FullName | ConvertFrom-Json
+        [Int64]$t0 = [Convert]::ToUInt64($j.tickBeforeMs, 16)
+        [Int64]$t1 = [Convert]::ToUInt64($j.tickAfterMs, 16)
+        [Int64]$u0 = [Convert]::ToUInt64($j.utcBeforeFileTime, 16)
+        [Int64]$u1 = [Convert]::ToUInt64($j.utcAfterFileTime, 16)
+        [PSCustomObject]@{
+            Sample = $_.Name
+            BootTime = $j.lastBootUpTimeRaw
+            Version = $j.versionRaw
+            Build = $j.buildNumberRaw
+            TickSpanMs = $t1 - $t0
+            UtcSpanMs = [Math]::Round(($u1 - $u0) / 10000.0, 3)
+            PredictedBootSpreadMs = [Math]::Round([Math]::Abs((($u1 - ($t1 * 10000)) - ($u0 - ($t0 * 10000))) / 10000.0), 3)
+            Result = $j.result
+        }
+    }
+
+    if (@($rows).Count -ne 5) { throw "Expected 5 samples: $($item.Name)" }
+    if (@($rows | Select-Object BootTime, Version, Build -Unique).Count -ne 1) { throw "Boot tuple changed: $($item.Name)" }
+    if (@($rows | Where-Object Result -ne "ACCEPTANCE_NOT_AUTHORIZED").Count -ne 0) { throw "Unexpected result: $($item.Name)" }
+
+    Write-Output "`nBatch: $($item.Name)"
+    $rows | Format-Table -AutoSize
+    [PSCustomObject]@{
+        Batch = $item.Name
+        Samples = @($rows).Count
+        MaxTickSpanMs = ($rows | Measure-Object TickSpanMs -Maximum).Maximum
+        MaxUtcSpanMs = ($rows | Measure-Object UtcSpanMs -Maximum).Maximum
+        MaxPredictedBootSpreadMs = ($rows | Measure-Object PredictedBootSpreadMs -Maximum).Maximum
+        BootTupleStable = $true
+    } | Format-List
+}
+```
+
+7. **結果を共有する**
+
+   PowerShellに表示されたstep 2、4、5、6の出力だけを貼ります。`%TEMP%`のraw JSON、ユーザー名付きpath、BootId digestは、Evidence Owner、redaction、retention、bundle locationを承認するまでGitへ追加しません。設定やdisplay配置が変わっていないことも目視確認します。
+
 今回の限定authorizationは、full-byte fixture、expected SHA-256、semantic manifest、artifact index、aggregate hashの生成・検証、D07 controlled filesystem/DACL evidence、D08 read-only Windows evidence、formal G1A evidence bundleの作成だけです。Phase 2A product/runtime code、Tauri/watchdog/worker統合、runtime serializer/WAL file、fault harness、display mutationは引き続き未許可です。D07は`DIRECTORY_ANCHOR_UNPROVEN / NO_GO_RECORDED`、D08は`READ_ONLY_AUTHORIZED / ACTIVE_SLEEP_RESTART_HIBERNATE_BATCHES_25_OF_25_IDENTITY_METRICS_CONSISTENT / CROSS_SLEEP_HIBERNATE_TICK_UTC_ADVANCE_CONSISTENT / RESTART_BOOT_BOUNDARY_CONFIRMED / HIBERNATE_SAME_BOOT_OBSERVED / TOLERANCE_EVIDENCE_PENDING`、G1Aはtemplate/validatorのみでformal result evidenceはpendingです。
 
 | Decision | 人間が決める内容 | 現在のrecommended candidate | Status |
