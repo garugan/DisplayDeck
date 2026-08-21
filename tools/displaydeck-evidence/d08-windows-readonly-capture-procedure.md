@@ -19,8 +19,13 @@ BootTime and the diagnostic BootId changed across restart, tick reset was
 observed, version/build remained `10.0.19045`/`19045`, and the new boot tuple
 was stable across all five samples. Restart maxima were tick span `110 ms`, UTC
 span `96.023 ms`, and predicted-boot spread `13.977 ms`. All results remained
-`ACCEPTANCE_NOT_AUTHORIZED`. The raw captures remain outside Git, so this is
-not yet a formal bundled artifact or a tolerance freeze.
+`ACCEPTANCE_NOT_AUTHORIZED`. Pre-hibernate and resume batches then passed 5/5
+each. Pre-hibernate maxima were tick span `63 ms`, UTC span `53.499 ms`, and
+predicted-boot spread `12.788 ms`; resume maxima were `63 ms`, `52.283 ms`, and
+`12.335 ms`. Across hibernate, tick advanced `15282 ms`, UTC advanced
+`15286.607 ms`, their difference was `4.607 ms`, and BootTime, diagnostic
+BootId, and version/build remained unchanged. The raw captures remain outside
+Git, so this is not yet a formal bundled artifact or a tolerance freeze.
 
 On an authorized Windows evidence host, the capture operator records the
 following order in the D08 capture schema:
@@ -76,7 +81,8 @@ transitions. Wall-clock changes and WMI failure injection remain outside this
 read-only lane and require separate authorization. No sample count or observed
 maximum is itself an approved production threshold.
 
-After the batch, list the five boot tuples and bounded timing differences. The
+After the batch, list the five boot tuples and bounded timing differences. A
+variable assignment alone does not run or print this aggregation block. The
 underscore variable is `$_`; `$*` is not the current pipeline item.
 
 ```powershell
@@ -298,9 +304,10 @@ if (-not $comparison.BootTimeUnchanged -or -not $comparison.BootIdUnchanged) { t
 if ($pre.result -ne "ACCEPTANCE_NOT_AUTHORIZED" -or $post.result -ne "ACCEPTANCE_NOT_AUTHORIZED") { throw "Unexpected D08 result" }
 ```
 
-Run the existing five-sample aggregation block against both
-`$batch = $preHibernateBatch` and the resume `$batch`. Keep the raw captures
-outside Git. Fast Startup remains a separate cell.
+Run the complete five-sample aggregation block against both
+`$batch = $preHibernateBatch` and the resume `$batch`; assigning the variable
+alone prints no summary. Keep the raw captures outside Git. Fast Startup
+remains a separate cell.
 
 The capture document is validated offline with
 `validate_d08_readonly_capture.py`. Thresholds remain `UNSET` in every

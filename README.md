@@ -842,7 +842,7 @@ Get-Content -Raw $capture
 
 期待結果は`captured: ...`、`valid: ...`、`valid static vector: ...`です。JSONは`captureStatus: CAPTURED`、`probeAuthorization: READ_ONLY_AUTHORIZED`、`result: ACCEPTANCE_NOT_AUTHORIZED`または明示的なrejectになり、acceptance resultは生成しません。raw captureはEvidence Owner、redaction、retention、bundle locationを承認するまでGitへ追加しません。
 
-2026-08-21〜22にWindows 10 `10.0.19045`で、最初のsample、active 5件、sleep/resume後5件、full restart後5件がvalidatorを通過しました。最初のsampleから導出した非識別summaryは、tick sample span=`109 ms`、UTC span=`98.326 ms`、2つのpredicted bootの差=`10.674 ms`、WMI boot時刻とpredicted bootの絶対差=`約40.019..40.030 s`です。activeの最大値はtick span=`63 ms`、UTC span=`57.072 ms`、predicted-boot spread=`9.562 ms`、sleep/resume後はそれぞれ`63 ms`、`56.928 ms`、`10.276 ms`でした。cross-sleep intervalはtick=`589672 ms`、UTC=`589666.412 ms`、差=`5.588 ms`で、BootTimeは不変でした。full restartではBootTimeとdiagnostic BootIdが変化し、tick resetが観測され、Version/Buildは不変でした。restart 5件のboot tupleは全件一致し、最大値はtick span=`110 ms`、UTC span=`96.023 ms`、predicted-boot spread=`13.977 ms`でした。全sampleのresultは`ACCEPTANCE_NOT_AUTHORIZED`のままです。statusは`ACTIVE_SLEEP_RESTART_BATCHES_15_OF_15_IDENTITY_METRICS_CONSISTENT / CROSS_SLEEP_TICK_UTC_ADVANCE_CONSISTENT / RESTART_BOOT_BOUNDARY_CONFIRMED`であり、raw artifact hash、formal bundle、tolerance approvalはまだありません。
+2026-08-21〜22にWindows 10 `10.0.19045`で、最初のsampleと、active / sleep-resume / full restart / hibernate前後の5件batchがvalidatorを通過しました。最初のsampleから導出した非識別summaryは、tick sample span=`109 ms`、UTC span=`98.326 ms`、2つのpredicted bootの差=`10.674 ms`、WMI boot時刻とpredicted bootの絶対差=`約40.019..40.030 s`です。activeの最大値はtick span=`63 ms`、UTC span=`57.072 ms`、predicted-boot spread=`9.562 ms`、sleep/resume後はそれぞれ`63 ms`、`56.928 ms`、`10.276 ms`でした。cross-sleep intervalはtick=`589672 ms`、UTC=`589666.412 ms`、差=`5.588 ms`で、BootTimeは不変でした。full restartではBootTimeとdiagnostic BootIdが変化し、tick resetが観測され、Version/Buildは不変でした。restart 5件のboot tupleは全件一致し、最大値はtick span=`110 ms`、UTC span=`96.023 ms`、predicted-boot spread=`13.977 ms`でした。hibernate前5件の最大値は`63 ms`、`53.499 ms`、`12.788 ms`、復帰後5件は`63 ms`、`52.283 ms`、`12.335 ms`でした。cross-hibernate intervalはtick=`15282 ms`、UTC=`15286.607 ms`、差=`4.607 ms`で、BootTime、diagnostic BootId、Version/Buildは不変でした。全sampleのresultは`ACCEPTANCE_NOT_AUTHORIZED`のままです。statusは`ACTIVE_SLEEP_RESTART_HIBERNATE_BATCHES_25_OF_25_IDENTITY_METRICS_CONSISTENT / CROSS_SLEEP_HIBERNATE_TICK_UTC_ADVANCE_CONSISTENT / RESTART_BOOT_BOUNDARY_CONFIRMED / HIBERNATE_SAME_BOOT_OBSERVED`であり、raw artifact hash、formal bundle、tolerance approvalはまだありません。
 
 ```powershell
 git pull
@@ -863,7 +863,9 @@ New-Item -ItemType Directory -Path $batch -ErrorAction Stop | Out-Null
 Write-Output "batch: $batch"
 ```
 
-同じPowerShell sessionで5件のboot tupleとtick/UTC差を一覧化し、件数・tuple一意性・resultを検査します。
+##### 共通5件集計block
+
+同じPowerShell sessionで5件のboot tupleとtick/UTC差を一覧化し、件数・tuple一意性・resultを検査します。`$batch`への代入だけでは集計も表示も行われないため、対象folderを代入した後にこのblock全体を実行します。
 
 ```powershell
 $rows = Get-ChildItem "$batch\sample-*.json" -File | Sort-Object Name | ForEach-Object {
@@ -1086,9 +1088,11 @@ if (-not $comparison.BootTimeUnchanged -or -not $comparison.BootIdUnchanged) { t
 if ($pre.result -ne "ACCEPTANCE_NOT_AUTHORIZED" -or $post.result -ne "ACCEPTANCE_NOT_AUTHORIZED") { throw "Unexpected D08 result" }
 ```
 
-最後に既出の5件一覧化blockを`$batch = $preHibernateBatch`とhibernate/resume `$batch`の双方へ実行します。raw captureはGitへ追加しません。
+最後に「共通5件集計block」全体を、`$batch = $preHibernateBatch`とhibernate/resume `$batch`の双方へ実行します。変数代入だけでは結果は出ません。raw captureはGitへ追加しません。
 
-今回の限定authorizationは、full-byte fixture、expected SHA-256、semantic manifest、artifact index、aggregate hashの生成・検証、D07 controlled filesystem/DACL evidence、D08 read-only Windows evidence、formal G1A evidence bundleの作成だけです。Phase 2A product/runtime code、Tauri/watchdog/worker統合、runtime serializer/WAL file、fault harness、display mutationは引き続き未許可です。D07は`DIRECTORY_ANCHOR_UNPROVEN / NO_GO_RECORDED`、D08は`READ_ONLY_AUTHORIZED / ACTIVE_SLEEP_RESTART_BATCHES_15_OF_15_IDENTITY_METRICS_CONSISTENT / CROSS_SLEEP_TICK_UTC_ADVANCE_CONSISTENT / RESTART_BOOT_BOUNDARY_CONFIRMED / HIBERNATE_EVIDENCE_PENDING / TOLERANCE_EVIDENCE_PENDING`、G1Aはtemplate/validatorのみでformal result evidenceはpendingです。
+2026-08-22の実機結果はhibernate前後ともcapture/validator/集計が5/5で、BootTime、diagnostic BootId、Version/Buildは不変でした。hibernate前の最大値はtick span=`63 ms`、UTC span=`53.499 ms`、predicted-boot spread=`12.788 ms`、復帰後は`63 ms`、`52.283 ms`、`12.335 ms`でした。cross-hibernate intervalはtick=`15282 ms`、UTC=`15286.607 ms`、差=`4.607 ms`です。これは一つの実機cellのread-only observationであり、production thresholdやsame-boot acceptance authorityではありません。
+
+今回の限定authorizationは、full-byte fixture、expected SHA-256、semantic manifest、artifact index、aggregate hashの生成・検証、D07 controlled filesystem/DACL evidence、D08 read-only Windows evidence、formal G1A evidence bundleの作成だけです。Phase 2A product/runtime code、Tauri/watchdog/worker統合、runtime serializer/WAL file、fault harness、display mutationは引き続き未許可です。D07は`DIRECTORY_ANCHOR_UNPROVEN / NO_GO_RECORDED`、D08は`READ_ONLY_AUTHORIZED / ACTIVE_SLEEP_RESTART_HIBERNATE_BATCHES_25_OF_25_IDENTITY_METRICS_CONSISTENT / CROSS_SLEEP_HIBERNATE_TICK_UTC_ADVANCE_CONSISTENT / RESTART_BOOT_BOUNDARY_CONFIRMED / HIBERNATE_SAME_BOOT_OBSERVED / TOLERANCE_EVIDENCE_PENDING`、G1Aはtemplate/validatorのみでformal result evidenceはpendingです。
 
 | Decision | 人間が決める内容 | 現在のrecommended candidate | Status |
 | --- | --- | --- | --- |
@@ -1099,7 +1103,7 @@ if ($pre.result -ne "ACCEPTANCE_NOT_AUTHORIZED" -or $post.result -ne "ACCEPTANCE
 | `DD-FR-002-D05` | machine recordのruntime writer | SYSTEM creator/maintenance writerとinstaller-designated single runtime owner SIDに限定 | `POLICY_APPROVED / SPEC_CANDIDATE / BYTE_ARTIFACT_GENERATED / INDEPENDENT_STATIC_REVIEW_CLEAN / HUMAN_FREEZE_APPROVAL_PENDING` |
 | `DD-FR-002-D06` | fresh MachineActor provision | separate installer provision recordでcreate前intentとactual file-ID checkpointをdurable化し、最初のvalid maintenance intent / activeを経てowner-bound ordinary cleanへ進む | `POLICY_APPROVED / SPEC_CANDIDATE / BYTE_ARTIFACT_GENERATED / INDEPENDENT_STATIC_REVIEW_CLEAN / HUMAN_FREEZE_APPROVAL_PENDING` |
 | `DD-FR-002-D07` | directory anchor / reparse proof | documented handle/APIでrace-resistantに証明できたcellだけadmit。現時点は未証明のためNo-Go | `POLICY_APPROVED / SPEC_CANDIDATE / DIRECTORY_ANCHOR_UNPROVEN / NO_GO_RECORDED / HUMAN_FREEZE_APPROVAL_PENDING` |
-| `DD-FR-002-D08` | boot identity | stable WMI boot UTC/version/buildだけをhashし、tick/UTC cross-checkは別acceptance evidenceとして実機でtoleranceをfreeze | `POLICY_APPROVED / SPEC_CANDIDATE / READ_ONLY_AUTHORIZED / ACTIVE_SLEEP_RESTART_BATCHES_15_OF_15_IDENTITY_METRICS_CONSISTENT / CROSS_SLEEP_TICK_UTC_ADVANCE_CONSISTENT / RESTART_BOOT_BOUNDARY_CONFIRMED / HIBERNATE_EVIDENCE_PENDING / TOLERANCE_EVIDENCE_PENDING / HUMAN_FREEZE_APPROVAL_PENDING` |
+| `DD-FR-002-D08` | boot identity | stable WMI boot UTC/version/buildだけをhashし、tick/UTC cross-checkは別acceptance evidenceとして実機でtoleranceをfreeze | `POLICY_APPROVED / SPEC_CANDIDATE / READ_ONLY_AUTHORIZED / ACTIVE_SLEEP_RESTART_HIBERNATE_BATCHES_25_OF_25_IDENTITY_METRICS_CONSISTENT / CROSS_SLEEP_HIBERNATE_TICK_UTC_ADVANCE_CONSISTENT / RESTART_BOOT_BOUNDARY_CONFIRMED / HIBERNATE_SAME_BOOT_OBSERVED / TOLERANCE_EVIDENCE_PENDING / HUMAN_FREEZE_APPROVAL_PENDING` |
 
 D01〜D08の方針承認と今回の統合freeze-evidence authorizationは、full-byte artifact生成を許可しますが、`FROZEN`、artifact approval、Phase 2A authorizationではありません。CANDIDATE-04のfull-byte生成と独立static reviewは完了しましたが、D07/D08/G1A evidence、Reviewer/Approver、immutable approval referenceが揃うまでcode値やDACL候補の実装正本にしません。D05によりV1のmutation writerはinstaller-bound single runtime ownerだけで、別ownerへの変更はelevated maintenance/rebindを必要とします。
 
