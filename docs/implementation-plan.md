@@ -2,7 +2,7 @@
 
 最終更新: 2026-08-24
 
-状態: Ponytailによるロードマップ改訂済み。Gate Aは2026-08-24に承認され、Stage 1のnon-mutating実装とlocal自動testは完了した。Windows packaged read-only smokeは未実施である。display mutation、actual machine-dataへの書込み、配布は未承認である。
+状態: Ponytailによるロードマップ改訂済み。Gate Aは2026-08-24に承認され、Stage 1のnon-mutating実装、自動test、Windows packaged read-only smokeは完了した。display mutation、actual machine-dataへの書込み、配布は未承認である。
 
 ## 1. 完成の定義
 
@@ -206,4 +206,4 @@ G1A、DD-FR-002 freeze、Phase 2A開始、G2A、UI開始、read-only統合開始
 
 ## 8. 次の一手
 
-Gate Aは承認済みである。追加D08測定や別review文書へ戻らず、READMEのWindows packaged read-only smokeを一度実行してStage 1を閉じる。
+Stage 1は完了済みである。次はGate Bでexact cellと一つのtemporary transitionが明示承認された場合だけStage 2を開始する。それまでは追加D08測定、fixture再検証、display mutationを行わない。

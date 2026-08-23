@@ -763,7 +763,7 @@ Step 9で作成したCandidate 04の590 vector、hash/index、再現生成、独
 | Stage | 作るもの | 完了条件 |
 | --- | --- | --- |
 | 0 | MVP範囲と実装baselineの一括承認 | Candidate 04、D08 lab candidate、D07 mutation前Go/No-Go、Stage 1のnon-mutating実装を一度に承認 |
-| 1 | read-only Tauri製品 + fake backendの安全core | current/candidate UI、watchdog、one-shot worker、WAL、deadline/fencingをdisplay変更なしで自動test |
+| 1（完了） | read-only Tauri製品 + fake backendの安全core | current/candidate UI、watchdog、one-shot worker、WAL、deadline/fencingをdisplay変更なしで自動test |
 | 2 | 製品構成で一つのcontrolled transition | Keep、manual Revert、timeout、parent loss、worker/watchdog failure、startup recoveryを一つのexact cellで確認 |
 | 3 | MVP仕上げ + NSIS | UI基本品質、support statement、clean install/launch/uninstall、RC safety smoke |
 
@@ -771,7 +771,7 @@ Step 9で作成したCandidate 04の590 vector、hash/index、再現生成、独
 
 初期MVPはlocal consoleの単一user・単一active physical display path・解像度/refreshの非永続変更だけです。multi-display、RDP/FUS、scale、HDR/color、DLDSR、virtual display、arm64、MSI、update/repair、広いhardware matrixは完成後のbacklogへ移しました。D07またはactual mutationがNo-Goなら、安全性を下げずread-only appとして完成させます。
 
-次に必要なのは追加evidenceではなく、次のWindows実機smokeです。詳細と安全上削らない契約は[`docs/implementation-plan.md`](docs/implementation-plan.md)を正本とします。
+Stage 1はWindows実機smokeまで完了しました。次の実装はGate Bの明示承認後にだけ開始します。詳細と安全上削らない契約は[`docs/implementation-plan.md`](docs/implementation-plan.md)を正本とします。
 
 ## Stage 1 Windows実機確認
 
@@ -782,13 +782,13 @@ Step 9で作成したCandidate 04の590 vector、hash/index、再現生成、独
 Windows PowerShellでDisplayDeckのルートへ移動し、次を上から一度だけ実行します。
 
 ```powershell
-git pull
-npm ci
+git pull --ff-only
+npm.cmd ci
 cargo fmt --all -- --check
 cargo test --workspace --all-targets
-npm run build
+npm.cmd run build
 cargo build -p displaydeck-safety --bin displaydeck-actor --release
-npm run tauri build -- --no-bundle
+npm.cmd run tauri build -- --no-bundle
 ```
 
 途中で終了コードが非0になった場合は、そこで停止して出力を共有してください。すべて成功したら、次の2ファイルが同じdirectoryにできます。
@@ -814,6 +814,19 @@ target\release\displaydeck-actor.exe
 4. Windowsの解像度、refresh rate、配置が変わっていない。
 
 frontend終了時のfake rollback、timeout、WAL/journal破損、stale worker、deadline/fence不一致は上の自動testで確認するため、手動で繰り返しません。fake transactionの一時fileは`$env:TEMP\DisplayDeck-Stage1`だけに作成されます。
+
+### 3. 実機確認結果（完了）
+
+2026-08-24にWindows実機で次を確認しました。
+
+- commit `0aee9e8`をFast-forwardで取得
+- `npm.cmd ci`成功（27 packages、報告された脆弱性0件）
+- format check、Rust 64 tests、TypeScript / Vite buildがすべて成功
+- release build成功。`displaydeck-app.exe`（8,981,504 bytes）と`displaydeck-actor.exe`（669,184 bytes）を生成
+- read-only表示、disabled Apply、fake transactionの終了を確認
+- 実行前後でWindowsの解像度、refresh rate、配置に変化なし
+
+以上によりStage 1は完了です。`com.displaydeck.app`の末尾に関するTauri warningはWindows buildを失敗させておらず、Gate B前の修正条件にはしません。
 
 ## Windows以外で実行した場合
 
