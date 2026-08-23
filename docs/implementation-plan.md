@@ -206,4 +206,4 @@ G1A、DD-FR-002 freeze、Phase 2A開始、G2A、UI開始、read-only統合開始
 
 ## 8. 次の一手
 
-Windows release executableの起動直後終了を解消し、read-only表示とfake transactionのsmokeを完了してStage 1を閉じる。その後、Gate Bでexact cellと一つのtemporary transitionが明示承認された場合だけStage 2を開始する。それまでは追加D08測定、fixture再検証、display mutationを行わない。
+Windows release executableのread-only表示とfake transactionのsmokeが完了し、Stage 1は閉じた。次はGate Bでexact cellと一つのtemporary transitionが明示承認された場合だけStage 2を開始する。それまでは追加D08測定、fixture再検証、display mutationを行わない。

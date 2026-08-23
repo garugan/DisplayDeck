@@ -2,7 +2,7 @@
 
 最終更新: 2026-08-24
 
-状態: exploratory read-only CLIのStep 1〜8はWindows実機観測済み。Gate Aは2026-08-24に承認され、Stage 1のnon-mutating実装、自動test、Windows release buildは完了した。release executableの起動直後終了を調査中で、手動read-only smokeは未完了である。実行必須範囲は`docs/implementation-plan.md` 5章の最小検証policyを正本とする。本書の広いmatrixと旧Phase名は将来support cellを追加するときの参考catalogであり、MVP開始条件や全件実行要求ではない。Gate B前のWindows変更は未承認。
+状態: exploratory read-only CLIのStep 1〜8はWindows実機観測済み。Gate Aは2026-08-24に承認され、Stage 1のnon-mutating実装、自動test、Windows release build、read-only appとfake transactionの手動smokeは完了した。実行必須範囲は`docs/implementation-plan.md` 5章の最小検証policyを正本とする。本書の広いmatrixと旧Phase名は将来support cellを追加するときの参考catalogであり、MVP開始条件や全件実行要求ではない。Gate B前のWindows変更は未承認。
 
 ## 1. 最優先目標
 
