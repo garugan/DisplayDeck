@@ -1,7 +1,8 @@
 # DisplayDeck リスクと未決定事項
 
-最終更新: 2026-08-05  
-状態: Tauri移行後。全項目は未検証。明示されたowner decisionなしに確定しない。
+最終更新: 2026-08-24
+
+状態: Tauri移行後。実行gateは`docs/implementation-plan.md`のGate A〜Cへ統合済み。各riskの安全controlは維持するが、旧Phase名や個別evidence packageを追加承認gateとして扱わない。
 
 ## 1. 評価尺度
 
@@ -110,7 +111,7 @@ Status:
 | cleanup crash | terminalizationとcleanup/reclaimを別operationにし、両slotを同時に変更しない | cleanup checkpointごとのprocess/OS crash、audit summary survival |
 | reclaim crash | target/full digestをdurable intentにbindし、current partialは同targetにだけretry。他slotのold evidenceを保持 | intent write/flush、partial baseline、baseline link、Keep target overwriteごとのfault injection |
 
-DD-FR-001で上記semantic lifecycleは決定した。2026-08-13にDD-FR-002-D01〜D08のrecommended design directionは承認され、numeric layout、checksum、SYSTEM/single-owner DACL、separate MachineActor provision、boot/evidence binding、worker one-shot oracleの文書candidateを作成した。CANDIDATE-03は77 vectorのbytes/hash/index自己整合後もD02 canonical-source、D03/SID binding、MAP resume/cleanup、DJ/MAR coverage gapsで独立review不合格となり、freezeしていない。D04のnormal/critical owner terminal集合、EMPTY exclusion、uninstall deferral、initial-provision structural/readiness splitをまとめた`DD-FR-002-D04-C04-RESOLUTION-PACKAGE-01`は2026-08-13にhuman ownerが一括承認した。active CANDIDATE-04は590 vectorのfull bytes/hash/indexを生成し、self-verify、再現生成、Candidate 04全体の独立static reviewがCLEANである。statusは`FULL_BYTES_GENERATED / SHA256_COMPUTED / FULL_INDEPENDENT_STATIC_REVIEW_CLEAN / HUMAN_FREEZE_APPROVAL_PENDING`である。D07は`DIRECTORY_ANCHOR_UNPROVEN / NO_GO_RECORDED`、D08はactive/sleep-resume/restart/hibernate前後合計25件がcapture/validationを通過し、cross-sleep/cross-hibernate tick/UTC advance、sleep/hibernateでBootTime不変、full restartでBootTime/BootId変化とtick reset、各batch内boot tuple一致を観測した。高速スタートアップは無効状態を観測し、有効cellは未検証である。これらの値から`DD-FR-002-D08-TOLERANCE-CANDIDATE-01`（sample span 250 ms、predicted-boot差50 ms、逆行/上限超過reject）を文書候補として作成したが、追加cell/boundary evidence、human freeze approval、formal bundleはpendingである。G1Aはformal result evidence pendingである。これはPhase 1A blockerではないが、Phase 2A code/file/fixture/fault harness作成前にhuman freeze approvalを記録する。Phase 2A実機/fault evidenceが不成立なcellはPhase 1B No-Goである。
+DD-FR-001で上記semantic lifecycleは決定した。2026-08-13にDD-FR-002-D01〜D08のrecommended design directionを承認し、active CANDIDATE-04は590 vectorのfull bytes/hash/index、self-verify、再現生成、独立static reviewを完了した。D07は`DIRECTORY_ANCHOR_UNPROVEN / NO_GO_RECORDED`、D08はWindows 10一台の25件と`DD-FR-002-D08-TOLERANCE-CANDIDATE-01`（sample span 250 ms、predicted-boot差50 ms、逆行/上限超過reject）まで記録した。これ以上のpre-code fixture/D08/G1A evidenceは増やさない。Candidate 04のStage 1 baseline採用はGate A、D07/D08のactual cell Go/No-GoはGate Bへ統合する。schema変更時だけfixture reviewを再開し、mutation evidenceが不成立なcellはNo-Goとする。
 
 ## 7. 未決定事項
 
@@ -213,66 +214,36 @@ DD-FR-001で上記semantic lifecycleは決定した。2026-08-13にDD-FR-002-D01
 - elevated trusted maintenance actorはreferenced owner WALをterminal照合用にread-only openする。unreadable、record/WAL不一致、ACL/reparse/tamper疑いではupdate/repair/uninstallをfail closedにし、restore/cleanupはしない。
 - 複数interactive sessionでのmutation、Windows service、owner不在recovery、all-process loss 15秒保証は初期非対応である。support拡張は別design reviewとevidenceを必要とする。
 
-## 8. 実装開始前に人間が判断すべき事項
+## 8. 人間の判断は3回だけ
 
-Phase 1A開始前:
+### Gate A: non-mutating実装開始
 
-- Q03 exact Windows 10/11 machines/editions/buildsとGPU/display
-- API/DLL/allowed argument/flag/timeout/field/redactionを行単位でfreezeしたread-only call allowlist、forbidden-call audit、data redaction/retention、Operator、Evidence Owner、Reviewer、Target Machine、実施日、evidence location、immutable approver/result
-- Tauri改訂設計の再レビュー結果
+- MVPをlocal console単一user・単一active physical display path・非永続の解像度/refresh変更へ限定する
+- Candidate 04をStage 1 implementation baselineとして採用する
+- D07はGate BのGo/No-Go、D08 Candidate 01はlab candidateとする
+- Stage 1のTauri/read-only UI/watchdog/fake worker/WAL実装を承認する
 
-Phase 2A開始前（Phase 1A/G1A closure後）:
+### Gate B: exact controlled mutation
 
-- display mutationなしのcoordination/storage/process spike専用human approval
-- `KEEP_AUTHORIZED`/DecisionJournal A/B fault model、canonical machine record/WAL order、DACL、maintenance fence、commit-writer/heartbeat測定plan
-- Target Machine/Operator/Evidence Owner/Reviewer/evidence locationのPhase 2A record
+- exact Windows build、x64、GPU/driver、display/connection、mode transition 1件
+- Stage 1 safety tests、D07対象volume pass、D08 current/restart pass
+- blind recovery、out-of-band確認、Operator、実行日
+- 上記exact runだけの一時display mutation承認
 
-Phase 1B/2B mutation前（Phase 2A/G2A closure後）:
+### Gate C: MVP release
 
-- Q01、Q02のsafety boundary仮承認
-- exact transition、blind recovery、lab access、stop authority
-- Q09 candidate API/flagとhard exclusion
-- Phase 1A result review、TDR-001〜006 resolution再レビュー、watchdog/recovery/clock/fencing/maintenance承認
-- exact Operator/Evidence Owner/Reviewer/Target Machineとout-of-band別操作経路、human mutation approval
+- qualified package、exact support cell、known limitations
+- NSIS clean install/launch/uninstallとRC safety smoke
+- 未検証OS/hardwareをsupport表示しないこと
 
-Product foundation/mutation統合前:
+G1A/G2A、fixture、UI、read-only統合、watchdog prototype、NSISを別々の承認にしない。
 
-- Q05 confirmation/accessibility
-- Q07 watchdog launch independence
-- Q10 journal/security model
+## 9. Stage routing
 
-Release前:
-
-- Q01〜Q05の最終decision
-- Q03 finite support statement
-- Q04/Q08 installer/signing/WebView2
-- all zero-tolerance evidenceとknown limitation
-
-## 9. 技術spike routing
-
-### Phase 1A read-only
-
-R-T05、R-W05〜W10、Q03/Q06/Q09の観測部分を扱う。displayを変更しない。
-
-### Phase 2A coordination/storage/process（no mutation）
-
-R-T01/R-T03/R-T04/R-T07/R-T08/R-T12〜R-T19、Q07/Q10を扱う。Phase 1A/G1A後、Phase 1Bより前に実施し、displayを変更しない。
-
-### Phase 1B controlled mutation
-
-R-T02、R-W01〜W04、Q01/Q02/Q09の実API部分を扱う。別承認とphysical recovery必須。
-
-### Phase 2B watchdog controlled recovery
-
-R-T01〜T04、R-T13〜R-T19、Q01/Q02/Q07/Q09/Q10のreal transition統合を扱う。Phase 1B後かつ別mutation承認を要する。
-
-### Phase 3/8 packaging
-
-R-T10、R-D01〜D08、Q04/Q08を扱う。
-
-### Phase 9 scale
-
-R-W09/W10、Q11を扱う。initial releaseと分離する。
+- Stage 1: R-T05、R-W05〜W10のread-only部分、R-T01/R-T03/R-T04/R-T07/R-T08/R-T12〜R-T19のfake/non-mutating safety core、Q03/Q06/Q07/Q09/Q10
+- Stage 2: R-T02、R-W01〜W04、R-T13〜R-T19の一つのreal transition統合、Q01/Q02/Q09
+- Stage 3: R-T10、必要なR-D項目、Q04/Q05/Q08のMVP subset
+- Backlog: scale/HDR/multi-display/RDP、arm64、MSI/update/repair、広いsupport matrix
 
 ## 10. Risk受容原則
 

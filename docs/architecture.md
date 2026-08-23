@@ -1,7 +1,8 @@
 # DisplayDeck アーキテクチャ設計
 
-最終更新: 2026-08-13
-状態: Tauri 2移行後の設計案。exploratory read-only CLI Step 1〜8は実装・Windows実機観測済みだが、Phase 1A closure、DD-FR-002 freeze、Phase 2A以降の実装・技術スパイクは未承認。
+最終更新: 2026-08-24
+
+状態: Tauri 2設計。exploratory read-only CLI Step 1〜8は実装・Windows実機観測済み。現在の実行順と承認は`docs/implementation-plan.md`のStage 0〜3 / Gate A〜Cだけを使用し、Gate Aは未承認である。本書に残る旧Phase 1A/1B/2A/2B/3〜9表記は設計履歴と試験領域の参照名であり、追加の実行gateを作らない。対応は旧Phase 2A/3/4/5→Stage 1、旧Phase 1B/2B/6→Stage 2、旧Phase 7/8→Stage 3とする。
 
 ## 1. 推奨アーキテクチャの要約
 
@@ -12,7 +13,7 @@ DisplayDeckは、単一のReact/WebView2フロントエンド、Tauri Rust core�
 - watchdogはTauri本体と別processで、transactionの唯一のownerとしてOS-wide lock、durable epoch、operational dual-slot WAL、fixed-slot `DecisionJournalV1`、deadline、親process喪失、keep/revert競合、復旧decisionを管理する。
 - workerは1回のWin32 inspect/preflight/apply/readback/restoreだけを実行して終了する。watchdog自身はblocking display APIを呼ばない。
 
-Tauriのsidecar同梱機構は配布手段の第一候補だが、親終了後もwatchdogが生存することは同梱機構だけからは保証できない。起動方法、Windows Job、handle inheritance、Task Manager終了をPhase 2A、NSIS同梱をPhase 8で実証する。フロントエンドにはshell起動権限を与えない。
+Tauriのsidecar同梱機構は配布手段の第一候補だが、親終了後もwatchdogが生存することは同梱機構だけからは保証できない。起動方法、Windows Job、handle inheritance、Task Manager終了をStage 1、NSIS同梱をStage 3で実証する。フロントエンドにはshell起動権限を与えない。
 
 初期Windows戦略は次のhybridを候補とする。
 
@@ -1449,7 +1450,7 @@ owner unavailableは全begin operationを拒否する。completionは既に開�
 
 ### 19.7 DD-FR-002 wire profile freeze candidate（pre-Phase 2A review用）
 
-この節のactive profileは`DD-FR-002-WIRE-PROFILE-V1-CANDIDATE-04`である。`CANDIDATE-01`へcompletionの`kind`/`operationNonce` binding、artifact index、MAPRV1 fresh-file vector、D08 lane separationを追加した版を`CANDIDATE-02`とした。CANDIDATE-02の独立reviewではworkerのGO replayとterminal後frameが1 fixtureへ混在し、MAP checksum専用vectorも欠けた。これを分離してD02 inner evidenceとD03 owner-SID cross-linkを追加した`CANDIDATE-03`は77 vectorのbytes/hash/index自己整合を示したが、独立reviewでD02 canonical-source coverage、D03/SID binding coverage、MAP resume/cleanup scenario、DJ/MAR negative/cross-link coverageが不足と判定された。このためCANDIDATE-03もfreeze不可であり、同じIDを上書きしない。CANDIDATE-04はD02/D03、DJ/MAR、MAP resume scenario、D04 tuple/readiness/evidence matrixのcoverageを拡張したcandidateである。exact 590-vector catalog/bytes/hashはcandidate-04 generatorが生成したmanifest/indexだけを候補正本とする。**履歴（2026-08-13）**ではD01〜D08のrecommended candidateだけが設計方針として承認され、full-byte fixture/hashの生成は未許可だった。**現況（統合freeze-evidence authorization）**では、このprofileのfixture/hash/index生成、self-verify、再現生成、全体独立static reviewが完了し、statusは`FULL_BYTES_GENERATED / SHA256_COMPUTED / FULL_INDEPENDENT_STATIC_REVIEW_CLEAN / HUMAN_FREEZE_APPROVAL_PENDING`である。ただしこのcandidateは`FROZEN`、artifact approval、Phase 2A実装許可ではない。既存の7.4および19.2〜19.6のsemantic contractをbyte layoutへ落とすcandidateであり、D07/D08 evidence、Reviewer/Approver/immutable approval referenceが揃うまで実装正本にしない。reviewで意味を変更する場合はcandidate IDを更新し、同じIDの意味を上書きしない。
+この節のactive profileは`DD-FR-002-WIRE-PROFILE-V1-CANDIDATE-04`である。`CANDIDATE-01`へcompletionの`kind`/`operationNonce` binding、artifact index、MAPRV1 fresh-file vector、D08 lane separationを追加した版を`CANDIDATE-02`とした。CANDIDATE-02の独立reviewではworkerのGO replayとterminal後frameが1 fixtureへ混在し、MAP checksum専用vectorも欠けた。これを分離してD02 inner evidenceとD03 owner-SID cross-linkを追加した`CANDIDATE-03`は77 vectorのbytes/hash/index自己整合を示したが、独立reviewでD02 canonical-source coverage、D03/SID binding coverage、MAP resume/cleanup scenario、DJ/MAR negative/cross-link coverageが不足と判定された。このためCANDIDATE-03もfreeze不可であり、同じIDを上書きしない。CANDIDATE-04はD02/D03、DJ/MAR、MAP resume scenario、D04 tuple/readiness/evidence matrixのcoverageを拡張したcandidateである。exact 590-vector catalog/bytes/hashはcandidate-04 generatorが生成したmanifest/indexだけを候補正本とする。**履歴（2026-08-13）**ではD01〜D08のrecommended candidateだけが設計方針として承認され、full-byte fixture/hashの生成は未許可だった。**現況**では、このprofileのfixture/hash/index生成、self-verify、再現生成、全体独立static reviewが完了している。Gate AでStage 1の実装baselineとして一括採否を決め、schemaを変更しない限り再生成・再reviewしない。D07/D08 evidenceはGate Bのmutation Go/No-Goであり、non-mutating Stage 1をblockしない。reviewで意味を変更する場合だけcandidate IDを更新し、同じIDの意味を上書きしない。
 
 #### Common primitive profile
 
@@ -1931,6 +1932,6 @@ bootstrap record自身のtrust rootを再帰させない。D06 candidateではsi
 
 owner=`SYSTEM`の作成を「elevated/signed installer」というlabelだけから推論しない。V1 creator/maintenance writer laneはSYSTEM tokenだけに固定し、`SeRestorePrivilege`等を持つ一般elevated installerへの代替は入れない。SYSTEM laneをapproved Windows cellで用意・証明できなければD06 No-Goで、失敗後にowner/DACLを修復して続行しない。Authenticode signerはDACL principalではない。
 
-このpolicy-approved candidateは19.2の`MAINTENANCE_INTENT`へSYSTEM creator専用`FRESH_UNINITIALIZED` classificationからのbootstrap ruleを追加し、`operationKind`へ`INITIAL_PROVISION`を追加するが、13個の`recordState`は増やさない。D07 anchor algorithm/evidence、full-byte artifact review、Phase 2A authorizationが未完了の間はMachineActor create/provision、bootstrap record、runtime serializer/WAL、fault harnessを実装・作成・実行しない。今回の限定authorizationで生成するfreeze fixtures/hash/indexは、このruntime禁止に含めない。
+このpolicy-approved candidateは19.2の`MAINTENANCE_INTENT`へSYSTEM creator専用`FRESH_UNINITIALIZED` classificationからのbootstrap ruleを追加し、`operationKind`へ`INITIAL_PROVISION`を追加するが、13個の`recordState`は増やさない。Gate A前はMachineActor、bootstrap record、runtime serializer/WAL、fault harnessを実装しない。Gate A後のStage 1ではfake/test storageで実装・自動testできるが、actual machine-data provision、production DACL write、display mutationはGate B前のD07 Goまで0件とする。
 
 per-user `DecisionJournalV1` DACL candidateはowner=current runtime SID、owner SIDにread/write/`READ_CONTROL`/synchronize、`SYSTEM`とAdministratorsにread/synchronizeだけ、other interactive usersにnoneとする。SYSTEM/installerはowner WALをwrite/restoreしない。protected DACL/inheritance profile、exact ACE order/mask、owner/DACL readback digestはgolden vectorとWindows実機でfreezeする。standard-user laneはSACLを要求しない。

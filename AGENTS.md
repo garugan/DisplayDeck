@@ -2,7 +2,7 @@
 
 ## Current project gate: design revision only
 
-This repository is in the Tauri design-revision and re-review stage. No implementation or technical-spike approval has been recorded as of 2026-08-03. The historical review in `docs/design-review.md`, its resolution record, and this design revision are not implementation approval.
+The roadmap was reduced to the three human gates in `docs/implementation-plan.md` on 2026-08-24. Gate A / Stage 0 implementation approval has not yet been recorded. The historical reviews, their resolution records, and the roadmap revision are not implementation approval.
 
 Until a human owner explicitly approves the revised design and separately authorizes the relevant phase, agents must not:
 
@@ -53,7 +53,7 @@ prohibitions remain in force.
 - Do not add Electron-specific application code or an Electron compatibility layer.
 - Do not use PowerShell as the display-control strategy without a new design review. Do not add a Node.js native add-on.
 - JSON is the default format for non-secret preferences and versioned structured recovery records, subject to the durability and validation rules below.
-- NSIS `setup.exe` is the first installer candidate; MSI remains a comparison candidate. Installer mode, WebView2 distribution, signing, and update/uninstall recovery behavior require separate approval.
+- NSIS `setup.exe` is the MVP installer. MSI, auto-update, repair, upgrade migration, signing, and public distribution are post-MVP backlog unless Gate C explicitly includes them.
 - The initial product uses one application window and is not resident. A short-lived independent recovery process may exist only while a display transaction or startup recovery is active.
 
 ## Non-negotiable safety constraints
@@ -103,9 +103,9 @@ prohibitions remain in force.
 - Do not infer a Windows API, Tauri permission identifier, privilege requirement, driver behavior, or crate capability from a name or community sample.
 - Keep unresolved product, SLA, support, installer, signing, and accessibility choices in `docs/risks-and-open-questions.md`.
 - Windows-specific claims must be confirmed on every exact Windows 10/11 release cell admitted by the approved support matrix, using real GPUs and physical displays. An untested cell is not supported.
-- The first approved spike is read-only Windows API work. It creates no React UI and changes no display setting. Machine/session coordination and crash-storage evidence in Phase 2A must be approved before Phase 1B controlled-mutation work begins. Mutation, watchdog, product integration, installer, signing, and scale spikes each require their own gate as described in `docs/implementation-plan.md`.
+- Use only the three gates in `docs/implementation-plan.md`: Gate A authorizes the non-mutating Stage 1 product/safety-core implementation, Gate B authorizes one exact controlled-mutation cell and subsequent MVP packaging work, and Gate C authorizes release. Do not create separate approval gates for UI, read-only integration, watchdog prototype, G1A/G2A, individual fixtures, or NSIS implementation. Display mutation always remains behind Gate B; public release and untested support claims remain behind Gate C.
 - Do not convert a historical Electron review finding into “closed for Tauri” by assumption. `docs/tauri-migration.md` records which controls were carried forward and which require re-review.
 
 ## After approvals
 
-Implementation must follow the approved phases in `docs/implementation-plan.md`. Recovery foundations and watchdog evidence precede product mutation integration. Approval for one phase does not authorize a later phase, publication, signing, elevation, installer deployment, or a broader support matrix.
+Implementation must follow the approved stages in `docs/implementation-plan.md`. Recovery foundations and watchdog tests precede product mutation. Gate A does not authorize display mutation; Gate B does not authorize public release, signing, elevation, or a broader support matrix; Gate C applies only to the qualified package and cells named in its record.

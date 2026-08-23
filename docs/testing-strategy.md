@@ -1,7 +1,8 @@
 # DisplayDeck テスト戦略
 
-最終更新: 2026-08-13
-状態: exploratory read-only CLIのStep 1〜8はWindows実機観測済み。Phase 2A以降のtest artifact、fixture、fault harness、Windows変更は未承認。
+最終更新: 2026-08-24
+
+状態: exploratory read-only CLIのStep 1〜8はWindows実機観測済み。実行必須範囲は`docs/implementation-plan.md` 5章の最小検証policyを正本とする。本書の広いmatrixと旧Phase名は将来support cellを追加するときの参考catalogであり、MVP開始条件や全件実行要求ではない。Gate A前の実装とGate B前のWindows変更は未承認。
 
 ## 1. 最優先目標
 
