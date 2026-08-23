@@ -763,7 +763,7 @@ Step 9で作成したCandidate 04の590 vector、hash/index、再現生成、独
 | Stage | 作るもの | 完了条件 |
 | --- | --- | --- |
 | 0 | MVP範囲と実装baselineの一括承認 | Candidate 04、D08 lab candidate、D07 mutation前Go/No-Go、Stage 1のnon-mutating実装を一度に承認 |
-| 1（完了） | read-only Tauri製品 + fake backendの安全core | current/candidate UI、watchdog、one-shot worker、WAL、deadline/fencingをdisplay変更なしで自動test |
+| 1（起動smoke確認中） | read-only Tauri製品 + fake backendの安全core | current/candidate UI、watchdog、one-shot worker、WAL、deadline/fencingをdisplay変更なしで自動test |
 | 2 | 製品構成で一つのcontrolled transition | Keep、manual Revert、timeout、parent loss、worker/watchdog failure、startup recoveryを一つのexact cellで確認 |
 | 3 | MVP仕上げ + NSIS | UI基本品質、support statement、clean install/launch/uninstall、RC safety smoke |
 
@@ -771,7 +771,7 @@ Step 9で作成したCandidate 04の590 vector、hash/index、再現生成、独
 
 初期MVPはlocal consoleの単一user・単一active physical display path・解像度/refreshの非永続変更だけです。multi-display、RDP/FUS、scale、HDR/color、DLDSR、virtual display、arm64、MSI、update/repair、広いhardware matrixは完成後のbacklogへ移しました。D07またはactual mutationがNo-Goなら、安全性を下げずread-only appとして完成させます。
 
-Stage 1はWindows実機smokeまで完了しました。次の実装はGate Bの明示承認後にだけ開始します。詳細と安全上削らない契約は[`docs/implementation-plan.md`](docs/implementation-plan.md)を正本とします。
+Stage 1のbuildと自動testは完了しています。Windows release executableの起動smokeを完了するまでGate Bへ進みません。詳細と安全上削らない契約は[`docs/implementation-plan.md`](docs/implementation-plan.md)を正本とします。
 
 ## Stage 1 Windows実機確認
 
@@ -815,7 +815,7 @@ target\release\displaydeck-actor.exe
 
 frontend終了時のfake rollback、timeout、WAL/journal破損、stale worker、deadline/fence不一致は上の自動testで確認するため、手動で繰り返しません。fake transactionの一時fileは`$env:TEMP\DisplayDeck-Stage1`だけに作成されます。
 
-### 3. 実機確認結果（完了）
+### 3. 実機確認結果（起動smoke確認中）
 
 2026-08-24にWindows実機で次を確認しました。
 
@@ -823,10 +823,47 @@ frontend終了時のfake rollback、timeout、WAL/journal破損、stale worker�
 - `npm.cmd ci`成功（27 packages、報告された脆弱性0件）
 - format check、Rust 64 tests、TypeScript / Vite buildがすべて成功
 - release build成功。`displaydeck-app.exe`（8,981,504 bytes）と`displaydeck-actor.exe`（669,184 bytes）を生成
-- read-only表示、disabled Apply、fake transactionの終了を確認
-- 実行前後でWindowsの解像度、refresh rate、配置に変化なし
+- release executableは起動直後に終了し、read-only表示、disabled Apply、fake transactionの手動smokeは未確認
+- 起動試行によるWindowsの解像度、refresh rate、配置の変化はなし
 
-以上によりStage 1は完了です。`com.displaydeck.app`の末尾に関するTauri warningはWindows buildを失敗させておらず、Gate B前の修正条件にはしません。
+Rust / frontend / release buildは成功していますが、Stage 1はまだ完了扱いにしません。`com.displaydeck.app`の末尾に関するTauri warningは今回のbuildを失敗させていません。
+
+### 4. 起動直後に終了する場合
+
+startup failureは`$env:TEMP\DisplayDeck-Stage1\startup-error.txt`にも記録されます。次の一回でprocess生存、exit code、startup error、Windows Application log、WebView2 Runtime登録を取得します。設定変更やRuntime installは行いません。
+
+```powershell
+$exe = (Resolve-Path .\target\release\displaydeck-app.exe).Path
+$startupLog = Join-Path $env:TEMP 'DisplayDeck-Stage1\startup-error.txt'
+$since = Get-Date
+$process = Start-Process -FilePath $exe -WorkingDirectory (Get-Location).Path -PassThru
+$exited = $process.WaitForExit(5000)
+
+if ($exited) {
+    [PSCustomObject]@{ Exited = $true; ExitCode = $process.ExitCode } | Format-List
+    $item = Get-Item $startupLog -ErrorAction SilentlyContinue
+    if ($item -and $item.LastWriteTime -ge $since) { Get-Content -Raw $startupLog }
+    Start-Sleep -Seconds 2
+    Get-WinEvent -FilterHashtable @{ LogName = 'Application'; StartTime = $since.AddSeconds(-2) } -ErrorAction SilentlyContinue |
+        Where-Object ProviderName -in 'Application Error', 'Windows Error Reporting' |
+        Select-Object TimeCreated, ProviderName, Id, LevelDisplayName, Message |
+        Format-List
+} else {
+    [PSCustomObject]@{ Exited = $false; Pid = $process.Id } | Format-List
+}
+
+$roots = @(
+    'HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients',
+    'HKCU:\SOFTWARE\Microsoft\EdgeUpdate\Clients'
+)
+$roots | ForEach-Object { Get-ChildItem $_ -ErrorAction SilentlyContinue } |
+    ForEach-Object { Get-ItemProperty $_.PSPath } |
+    Where-Object { $_.name -match 'WebView2' } |
+    Select-Object name, pv, location |
+    Format-List
+```
+
+`Exited: false`ならprocessは正常に生存しているため、そのwindowで4項目のsmokeを続行します。`Exited: true`なら出力を共有し、原因がWebView2 Runtime不在、WebView2 data directory、native loader、またはWindows crashのどれかを確定してから最小修正します。
 
 ## Gate B準備（未承認・read-only）
 
@@ -843,8 +880,20 @@ Get-CimInstance Win32_OperatingSystem |
 Get-CimInstance Win32_VideoController |
     Format-List Name, DriverVersion, DriverDate, PNPDeviceID
 
-quser.exe
-if ($LASTEXITCODE -ne 0) { throw "session query failed: $LASTEXITCODE" }
+if (-not ('DisplayDeckSessionProbe' -as [type])) {
+    Add-Type -TypeDefinition @'
+using System.Runtime.InteropServices;
+public static class DisplayDeckSessionProbe {
+    [DllImport("user32.dll")]
+    public static extern int GetSystemMetrics(int index);
+}
+'@
+}
+[PSCustomObject]@{
+    SessionName  = $env:SESSIONNAME
+    SessionId    = [System.Diagnostics.Process]::GetCurrentProcess().SessionId
+    RemoteSession = [DisplayDeckSessionProbe]::GetSystemMetrics(0x1000) -ne 0
+} | Format-List
 
 $probe = cargo run --quiet -p display-probe 2>&1
 if ($LASTEXITCODE -ne 0) {
@@ -861,7 +910,7 @@ if ($hdr -notin @('OFF', 'ON', 'UNKNOWN')) { throw 'HDR状態の入力が不正�
 } | Format-List
 ```
 
-この取得ではWindows設定を変更しません。出力から一つのGate B承認文を作り、人間ownerの明示承認後にだけStage 2実装を開始します。actual mutation直前には、承認されたmonitor以外を人間operatorが無効化または切断し、`ActivePaths: 1`をread-onlyで再確認します。追加D08 batch、fixture再生成、別G1A資料は作りません。
+Windows 10 Homeに`quser.exe`がない場合も上のnative read-only checkを使用します。この取得ではWindows設定を変更しません。出力から一つのGate B承認文を作り、人間ownerの明示承認後にだけStage 2実装を開始します。actual mutation直前には、承認されたmonitor以外を人間operatorが無効化または切断し、`ActivePaths: 1`をread-onlyで再確認します。追加D08 batch、fixture再生成、別G1A資料は作りません。
 
 ## Windows以外で実行した場合
 

@@ -2,7 +2,7 @@
 
 最終更新: 2026-08-24
 
-状態: Tauri 2設計。exploratory read-only CLI Step 1〜8は実装・Windows実機観測済み。Gate Aは2026-08-24に承認され、Stage 1のnon-mutating実装、自動test、Windows packaged read-only smokeは完了した。現在の実行順と承認は`docs/implementation-plan.md`のStage 0〜3 / Gate A〜Cだけを使用する。本書に残る旧Phase 1A/1B/2A/2B/3〜9表記は設計履歴と試験領域の参照名であり、追加の実行gateを作らない。対応は旧Phase 2A/3/4/5→Stage 1、旧Phase 1B/2B/6→Stage 2、旧Phase 7/8→Stage 3とする。
+状態: Tauri 2設計。exploratory read-only CLI Step 1〜8は実装・Windows実機観測済み。Gate Aは2026-08-24に承認され、Stage 1のnon-mutating実装、自動test、Windows release buildは完了した。release executableの起動直後終了を調査中で、手動read-only smokeは未完了である。現在の実行順と承認は`docs/implementation-plan.md`のStage 0〜3 / Gate A〜Cだけを使用する。本書に残る旧Phase 1A/1B/2A/2B/3〜9表記は設計履歴と試験領域の参照名であり、追加の実行gateを作らない。対応は旧Phase 2A/3/4/5→Stage 1、旧Phase 1B/2B/6→Stage 2、旧Phase 7/8→Stage 3とする。
 
 ## 1. 推奨アーキテクチャの要約
 

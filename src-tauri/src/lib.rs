@@ -505,7 +505,7 @@ fn encode_hex(bytes: &[u8]) -> String {
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
-pub fn run() {
+pub fn run() -> Result<(), tauri::Error> {
     tauri::Builder::default()
         .manage(AppState {
             simulation: Mutex::new(SimulationManager::default()),
@@ -519,7 +519,6 @@ pub fn run() {
             get_display_change_status
         ])
         .run(tauri::generate_context!())
-        .expect("error while running DisplayDeck");
 }
 
 #[cfg(test)]
