@@ -1094,22 +1094,50 @@ if ($pre.result -ne "ACCEPTANCE_NOT_AUTHORIZED" -or $post.result -ne "ACCEPTANCE
 
 ##### 高速スタートアップ（Fast Startup）実機確認（次に実行する手順）
 
-目的は、高速スタートアップが有効なWindows 10で通常の「シャットダウン」と電源投入を跨いだとき、D08の起動日時、診断用BootId、tickがどう観測されるかを記録することです。Microsoftの説明では、高速スタートアップはカーネルセッションを休止状態として保存して通常のシャットダウン後の起動を高速化し、「再起動」には適用されません。そのため、この手順では「再起動」、`shutdown.exe`、Shiftキーを押しながらのシャットダウンは使いません。[Microsoft Learn: 高速スタートアップ](https://learn.microsoft.com/en-us/troubleshoot/windows-client/setup-upgrade-and-drivers/fast-startup-causes-system-hibernation-shutdown-fail)、[Microsoft Support: PCをシャットダウンする](https://support.microsoft.com/en-us/windows/shut-down-turn-off-your-pc-893fd089-c851-71c7-af3e-63e159681b21)
+この工程では、高速スタートアップが有効なWindows 10を通常の手順でシャットダウンし、電源を入れ直した前後のD08データを比較します。高速スタートアップの設定自体は変更しません。
 
-この手順は高速スタートアップや休止状態の設定を変更しません。補助スクリプトもシャットダウンや電源投入を行いません。実行前に作業中のファイルを保存してください。
+全体の流れは次のとおりです。
 
-1. **高速スタートアップが現在有効か目視確認する**
+1. 高速スタートアップが有効か画面で確認する。
+2. シャットダウン前のデータを5回取得する。
+3. Windowsの画面からシャットダウンし、電源を入れ直す。
+4. 起動後のデータを5回取得する。
+5. シャットダウン前後のデータを比較する。
+6. 取得した10件のデータを集計する。
+7. PowerShellに表示された結果を共有する。
 
-   Windowsの「コントロール パネル」→「ハードウェアとサウンド」→「電源オプション」→「電源ボタンの動作を選択する」を開きます。「シャットダウン設定」にある「高速スタートアップを有効にする（推奨）」がチェック済みか見るだけにします。チェック済みなら画面を閉じます。未チェック、項目なし、状態不明なら停止してください。「現在利用可能ではない設定を変更します」は選択せず、チェック変更、`powercfg`、レジストリ操作も行いません。
+この工程では「再起動」、`shutdown.exe`、Shiftキーを押しながらのシャットダウンは使いません。補助スクリプトがPCをシャットダウンしたり、電源設定を変更したりすることもありません。開始前に作業中のファイルを保存してください。[Microsoft Learn: 高速スタートアップ](https://learn.microsoft.com/en-us/troubleshoot/windows-client/setup-upgrade-and-drivers/fast-startup-causes-system-hibernation-shutdown-fail)、[Microsoft Support: PCをシャットダウンする](https://support.microsoft.com/en-us/windows/shut-down-turn-off-your-pc-893fd089-c851-71c7-af3e-63e159681b21)
 
-   DisplayDeck rootのPowerShellで、目視結果を確認してから続行します。
+###### 手順1：高速スタートアップが有効か確認し、この工程を続けてよいか判断する
+
+   Windowsで次の順に開きます。
+
+   「コントロール パネル」→「ハードウェアとサウンド」→「電源オプション」→「電源ボタンの動作を選択する」
+
+   「シャットダウン設定」にある「高速スタートアップを有効にする（推奨）」の状態を確認します。設定は変更せず、次のように判断してください。
+
+   - **チェック済み**：この画面を閉じ、下のPowerShell操作へ進みます。
+   - **チェックされていない**：この高速スタートアップ実機確認をここで終了します。手順2以降は実行しません。
+   - **項目が表示されない、または状態を判断できない**：この高速スタートアップ実機確認をここで終了します。手順2以降は実行しません。
+
+   終了する場合も、「現在利用可能ではない設定を変更します」は選択せず、チェック状態、`powercfg`、レジストリを変更しません。
+
+   チェック済みだった場合だけPowerShellを開き、DisplayDeckのフォルダーへ移動します。
+
+```powershell
+cd D:\project\displaydeck
+```
+
+   続いて下の2行を貼り付けます。質問が表示されたら`ENABLED`と入力してEnterキーを押します。この入力は、画面でチェック済みだったことを確認するだけで、Windowsの設定は変更しません。
 
 ```powershell
 $fastStartupObserved = Read-Host '「高速スタートアップを有効にする（推奨）」がチェック済みなら ENABLED と入力'
-if ($fastStartupObserved -cne 'ENABLED') { throw '高速スタートアップの有効状態を確認できません。設定を変更せず停止してください' }
+if ($fastStartupObserved -cne 'ENABLED') { throw '高速スタートアップの有効状態を確認できません。この実機確認を終了し、手順2以降は実行しないでください' }
 ```
 
-2. **シャットダウン前の5件を取得する**
+###### 手順2：シャットダウン前のデータを5回取得する
+
+   手順1で`ENABLED`を入力し、エラーが出なかった場合だけ、同じPowerShellへ次のブロック全体を貼り付けます。この処理はデータを取得・検証するだけで、PCをシャットダウンしません。
 
 ```powershell
 git pull
@@ -1127,18 +1155,24 @@ New-Item -ItemType Directory -Path $preFastStartupBatch -ErrorAction Stop | Out-
 Write-Output "pre-Fast-Startup batch: $preFastStartupBatch"
 ```
 
-期待結果は5件すべての`captured: ...`、`valid: ...`、`valid static vector: ...`です。1件でも失敗したらシャットダウンへ進みません。
+   5回すべてについて`captured: ...`、`valid: ...`、`valid static vector: ...`が表示されれば成功です。赤いエラーや例外が1件でも出た場合は、この工程を終了し、手順3のシャットダウンは行いません。
 
-3. **実行者が通常のシャットダウンと電源投入を行う**
+###### 手順3：Windowsを通常の手順でシャットダウンし、電源を入れ直す
 
-   PowerShellに表示された事前取得フォルダーを控えます。Windowsの「スタート」→「電源」→「シャットダウン」を選びます。完全に電源が切れた後、電源ボタンで起動します。「再起動」やシャットダウン用コマンドは使いません。
+   手順2の最後に表示された`pre-Fast-Startup batch: ...`を控えます。Windowsの「スタート」→「電源」→「シャットダウン」を選びます。PCの電源が完全に切れたことを確認してから、電源ボタンを押して起動します。「再起動」やシャットダウン用コマンドは使いません。
 
-4. **起動後の5件を取得する**
+###### 手順4：起動後のデータを5回取得する
 
-   Windows起動後、DisplayDeck rootで新しいPowerShellを開き、次を実行します。
+   Windows起動後にPowerShellを開き、次の2行でDisplayDeckのフォルダーへ移動し、最新のリポジトリ内容を取得します。
 
 ```powershell
+cd D:\project\displaydeck
 git pull
+```
+
+   続いて、同じPowerShellへ次のブロック全体を貼り付けます。この処理は、手順2の保存先を自動で見つけた後、起動後のデータを5回取得・検証します。
+
+```powershell
 $preFastStartupBatch = Get-ChildItem $env:TEMP -Directory -Filter "displaydeck-d08-fast-startup-pre-*" |
     Sort-Object LastWriteTime -Descending |
     Select-Object -First 1 -ExpandProperty FullName
@@ -1159,9 +1193,11 @@ Write-Output "pre-Fast-Startup batch: $preFastStartupBatch"
 Write-Output "post-Fast-Startup batch: $postFastStartupBatch"
 ```
 
-5. **シャットダウン前後を比較する**
+   5回すべてについて`captured: ...`、`valid: ...`、`valid static vector: ...`が表示されれば成功です。エラーや例外が出た場合は、手順5へ進まず、その出力を共有してください。
 
-   この比較は同一起動か新規起動かを先に決め打ちしません。BootTime / BootId / tickがすべて同じ分類を示す場合だけ結果を残し、混在した場合は安全側で不合格にします。
+###### 手順5：シャットダウン前後のデータを比較する
+
+   手順4と同じPowerShellへ、次のブロック全体を貼り付けます。シャットダウン前後のBootTime、BootId、tickを比較し、観測結果を一つに分類します。
 
 ```powershell
 $preCapture = Join-Path $preFastStartupBatch "sample-05.json"
@@ -1217,11 +1253,16 @@ if ($classification -eq "KERNEL_SESSION_CONTINUITY_OBSERVED" -and $tickAdvanceMs
 if ($pre.result -ne "ACCEPTANCE_NOT_AUTHORIZED" -or $post.result -ne "ACCEPTANCE_NOT_AUTHORIZED") { throw "Unexpected D08 result" }
 ```
 
-期待するのは、例外が出ず、`Classification`が`KERNEL_SESSION_CONTINUITY_OBSERVED`または`NEW_BOOT_BOUNDARY_OBSERVED`のどちらか一つになることです。この結果だけでは高速スタートアップの対応可否、製品用の許容値、同一起動と判定する権限を承認しません。
+   例外が出ず、`Classification`に次のどちらか一つが表示されれば比較成功です。
 
-6. **シャットダウン前後の各5件を集計する**
+   - `KERNEL_SESSION_CONTINUITY_OBSERVED`：シャットダウン前後でカーネルセッションが継続した観測結果です。
+   - `NEW_BOOT_BOUNDARY_OBSERVED`：シャットダウン後に新しい起動へ切り替わった観測結果です。
 
-   次を一度だけ実行します。結果はPowerShell画面へ表示され、ファイルには自動保存されません。
+   `MIXED_BOOT_EVIDENCE_REJECT`または例外が表示された場合は不合格です。その出力を共有し、以降の判断には使いません。この結果だけで高速スタートアップへの正式対応や製品用の許容値を承認することもありません。
+
+###### 手順6：シャットダウン前後の各5件を集計する
+
+   手順5と同じPowerShellへ、次のブロック全体を一度だけ貼り付けます。シャットダウン前5件と起動後5件の表と最大値がPowerShell画面へ表示されます。結果はファイルへ自動保存されません。
 
 ```powershell
 $batches = @(
@@ -1265,9 +1306,16 @@ foreach ($item in $batches) {
 }
 ```
 
-7. **結果を共有する**
+###### 手順7：結果を共有する
 
-   PowerShellに表示されたstep 2、4、5、6の出力だけを貼ります。`%TEMP%`のraw JSON、ユーザー名付きpath、BootId digestは、Evidence Owner、redaction、retention、bundle locationを承認するまでGitへ追加しません。設定やdisplay配置が変わっていないことも目視確認します。
+   次の出力をチャットへ貼ります。
+
+   - 手順2の5回分の取得・検証結果
+   - 手順4の5回分の取得・検証結果
+   - 手順5の`$comparison | Format-List`の結果
+   - 手順6の2つの表と集計結果
+
+   `%TEMP%`内のJSONファイルそのもの、ユーザー名を含む保存先、BootIdのハッシュ値はGitへ追加しません。最後に、実行前後でディスプレイの解像度、リフレッシュレート、配置が変わっていないことをWindowsの「設定」→「システム」→「ディスプレイ」で目視確認します。
 
 今回の限定authorizationは、full-byte fixture、expected SHA-256、semantic manifest、artifact index、aggregate hashの生成・検証、D07 controlled filesystem/DACL evidence、D08 read-only Windows evidence、formal G1A evidence bundleの作成だけです。Phase 2A product/runtime code、Tauri/watchdog/worker統合、runtime serializer/WAL file、fault harness、display mutationは引き続き未許可です。D07は`DIRECTORY_ANCHOR_UNPROVEN / NO_GO_RECORDED`、D08は`READ_ONLY_AUTHORIZED / ACTIVE_SLEEP_RESTART_HIBERNATE_BATCHES_25_OF_25_IDENTITY_METRICS_CONSISTENT / CROSS_SLEEP_HIBERNATE_TICK_UTC_ADVANCE_CONSISTENT / RESTART_BOOT_BOUNDARY_CONFIRMED / HIBERNATE_SAME_BOOT_OBSERVED / TOLERANCE_EVIDENCE_PENDING`、G1Aはtemplate/validatorのみでformal result evidenceはpendingです。
 
