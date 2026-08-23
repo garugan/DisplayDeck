@@ -128,20 +128,21 @@ pub fn build_current_observations(
             continue;
         }
 
-        let (adapter_index, target_location) =
-            match (&mapping.source_match, &mapping.target_match) {
-                (
-                    SourceMatch::Exact { adapter_index },
-                    TargetMatch::Exact { location },
-                ) if *adapter_index == location.adapter_index => (*adapter_index, *location),
-                _ => {
-                    paths.push(PathObservation::Unavailable {
-                        path_index: mapping.path_index,
-                        reason: ObservationUnavailable::InternalMappingInconsistency,
-                    });
-                    continue;
-                }
-            };
+        let (adapter_index, target_location) = match (&mapping.source_match, &mapping.target_match)
+        {
+            (SourceMatch::Exact { adapter_index }, TargetMatch::Exact { location })
+                if *adapter_index == location.adapter_index =>
+            {
+                (*adapter_index, *location)
+            }
+            _ => {
+                paths.push(PathObservation::Unavailable {
+                    path_index: mapping.path_index,
+                    reason: ObservationUnavailable::InternalMappingInconsistency,
+                });
+                continue;
+            }
+        };
 
         let Some(path) = snapshot
             .paths
@@ -203,23 +204,21 @@ fn observe_exact_path(
     let rotation = Rotation::from_raw(path.target.rotation);
     let current_mode = adapter.current_mode.stable_mode();
     let gdi_resolution = gdi_dimensions(current_mode);
-    let ccd_source_resolution = path.source_mode.as_ref().and_then(|mode| {
-        Dimensions::new(mode.width_pixels, mode.height_pixels)
-    });
-    let rotation_applied_source_resolution = ccd_source_resolution
-        .and_then(|dimensions| rotation.apply(dimensions));
-    let ccd_target_active_resolution = path.target_mode.as_ref().and_then(|mode| {
-        Dimensions::new(mode.active_width_pixels, mode.active_height_pixels)
-    });
+    let ccd_source_resolution = path
+        .source_mode
+        .as_ref()
+        .and_then(|mode| Dimensions::new(mode.width_pixels, mode.height_pixels));
+    let rotation_applied_source_resolution =
+        ccd_source_resolution.and_then(|dimensions| rotation.apply(dimensions));
+    let ccd_target_active_resolution = path
+        .target_mode
+        .as_ref()
+        .and_then(|mode| Dimensions::new(mode.active_width_pixels, mode.active_height_pixels));
 
-    let desktop_resolution_relation = compare_desktop_resolution(
-        gdi_resolution,
-        rotation_applied_source_resolution,
-    );
-    let source_target_resolution_relation = compare_distinct_dimensions(
-        ccd_source_resolution,
-        ccd_target_active_resolution,
-    );
+    let desktop_resolution_relation =
+        compare_desktop_resolution(gdi_resolution, rotation_applied_source_resolution);
+    let source_target_resolution_relation =
+        compare_distinct_dimensions(ccd_source_resolution, ccd_target_active_resolution);
 
     let gdi_refresh = gdi_refresh(current_mode);
     let ccd_path_refresh = path.target.refresh_rate;
@@ -272,9 +271,7 @@ fn gdi_dimensions(mode: Option<&DisplayMode>) -> Option<Dimensions> {
 fn gdi_refresh(mode: Option<&DisplayMode>) -> GdiRefresh {
     match mode.map(DisplayMode::refresh_rate) {
         Some(RefreshRate::Hertz(hertz)) if hertz > 1 => GdiRefresh::Hertz(hertz),
-        Some(RefreshRate::Hertz(_)) | Some(RefreshRate::DriverDefault) => {
-            GdiRefresh::DriverDefault
-        }
+        Some(RefreshRate::Hertz(_)) | Some(RefreshRate::DriverDefault) => GdiRefresh::DriverDefault,
         Some(RefreshRate::NotReported) => GdiRefresh::NotReported,
         None => GdiRefresh::ModeUnavailable,
     }
@@ -310,9 +307,7 @@ fn compare_gdi_to_rational(gdi: GdiRefresh, ccd: Rational) -> ObservationRelatio
         return ObservationRelation::Unavailable;
     }
 
-    if u128::from(gdi_hertz) * u128::from(ccd.denominator)
-        == u128::from(ccd.numerator)
-    {
+    if u128::from(gdi_hertz) * u128::from(ccd.denominator) == u128::from(ccd.numerator) {
         ObservationRelation::Exact
     } else {
         ObservationRelation::Distinct
@@ -349,10 +344,7 @@ fn classify_observation(relations: &[ObservationRelation]) -> ObservationClassif
     }
 }
 
-fn count_classification(
-    paths: &[PathObservation],
-    expected: ObservationClassification,
-) -> usize {
+fn count_classification(paths: &[PathObservation], expected: ObservationClassification) -> usize {
     paths
         .iter()
         .filter(|path| path.classification() == expected)
@@ -411,10 +403,18 @@ impl fmt::Display for Rotation {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Identity => {
-                write!(formatter, "Identity ({})", DISPLAYCONFIG_ROTATION_IDENTITY.0)
+                write!(
+                    formatter,
+                    "Identity ({})",
+                    DISPLAYCONFIG_ROTATION_IDENTITY.0
+                )
             }
             Self::Rotate90 => {
-                write!(formatter, "Rotate90 ({})", DISPLAYCONFIG_ROTATION_ROTATE90.0)
+                write!(
+                    formatter,
+                    "Rotate90 ({})",
+                    DISPLAYCONFIG_ROTATION_ROTATE90.0
+                )
             }
             Self::Rotate180 => write!(
                 formatter,
@@ -465,7 +465,10 @@ impl fmt::Display for ObservationUnavailable {
                 "shared clone source has {multiplicity} paths; Step 6 does not qualify clones"
             ),
             Self::InternalMappingInconsistency => {
-                write!(formatter, "exact cross-map could not be resolved internally")
+                write!(
+                    formatter,
+                    "exact cross-map could not be resolved internally"
+                )
             }
         }
     }
@@ -616,10 +619,7 @@ mod tests {
     #[test]
     fn mismatch_precedes_distinct_when_all_values_are_available() {
         assert_eq!(
-            classify_observation(&[
-                ObservationRelation::Distinct,
-                ObservationRelation::Mismatch,
-            ]),
+            classify_observation(&[ObservationRelation::Distinct, ObservationRelation::Mismatch,]),
             ObservationClassification::Mismatch
         );
     }

@@ -2,7 +2,7 @@
 
 ## Current project gate: design revision only
 
-The roadmap was reduced to the three human gates in `docs/implementation-plan.md` on 2026-08-24. Gate A / Stage 0 implementation approval has not yet been recorded. The historical reviews, their resolution records, and the roadmap revision are not implementation approval.
+The roadmap was reduced to the three human gates in `docs/implementation-plan.md` on 2026-08-24. The human owner approved Gate A / Stage 0 on 2026-08-24 and authorized Stage 1's Tauri read-only application plus non-mutating watchdog, fake one-shot worker, WAL, deadline, and fencing implementation. Display mutation, writes to actual machine-data/protected production storage, and distribution remain unauthorized until their later gates.
 
 Until a human owner explicitly approves the revised design and separately authorizes the relevant phase, agents must not:
 

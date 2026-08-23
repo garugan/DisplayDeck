@@ -2,7 +2,7 @@
 
 最終更新: 2026-08-24
 
-状態: Ponytailによるロードマップ改訂済み。read-only CLIは完了済み。アプリ本体、watchdog、worker、WAL、display mutation、installerは未実装。Gate Aが承認されるまでは引き続き設計作業のみとし、実装・display mutationを開始しない。
+状態: Ponytailによるロードマップ改訂済み。Gate Aは2026-08-24に承認され、Stage 1のnon-mutating実装とlocal自動testは完了した。Windows packaged read-only smokeは未実施である。display mutation、actual machine-dataへの書込み、配布は未承認である。
 
 ## 1. 完成の定義
 
@@ -206,4 +206,4 @@ G1A、DD-FR-002 freeze、Phase 2A開始、G2A、UI開始、read-only統合開始
 
 ## 8. 次の一手
 
-次に必要なのは追加D08測定や別review文書ではなく、Gate Aのhuman approvalである。承認後はStage 1を開始し、最初のユーザー可視成果をread-only Tauri appにする。
+Gate Aは承認済みである。追加D08測定や別review文書へ戻らず、READMEのWindows packaged read-only smokeを一度実行してStage 1を閉じる。

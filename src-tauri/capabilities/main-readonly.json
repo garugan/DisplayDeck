@@ -1,0 +1,16 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "main-readonly",
+  "description": "Only the local main window may call DisplayDeck's six typed commands.",
+  "local": true,
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "allow-get-display-snapshot",
+    "allow-begin-display-change",
+    "allow-ack-display-change-presentation",
+    "allow-confirm-display-change",
+    "allow-revert-display-change",
+    "allow-get-display-change-status"
+  ]
+}

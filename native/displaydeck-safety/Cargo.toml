@@ -1,0 +1,18 @@
+[package]
+name = "displaydeck-safety"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+getrandom = "0.4.3"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+sha2 = "0.11.0"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { version = "=0.62.2", features = ["Win32_Foundation", "Win32_System_SystemInformation", "Win32_System_Threading"] }
+
+[[bin]]
+name = "displaydeck-actor"
+path = "src/bin/displaydeck_actor.rs"

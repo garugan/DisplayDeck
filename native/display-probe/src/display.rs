@@ -5,10 +5,10 @@ use windows::{
     Win32::Graphics::Gdi::{
         EnumDisplayDevicesW, EnumDisplaySettingsExW, DEVMODEW, DISPLAY_DEVICEW,
         DISPLAY_DEVICE_ATTACHED_TO_DESKTOP, DISPLAY_DEVICE_MIRRORING_DRIVER,
-        DISPLAY_DEVICE_PRIMARY_DEVICE, DISPLAY_DEVICE_RDPUDD, DISPLAY_DEVICE_REMOTE,
-        DM_BITSPERPEL, DM_DISPLAYFIXEDOUTPUT, DM_DISPLAYFLAGS, DM_DISPLAYFREQUENCY,
-        DM_DISPLAYORIENTATION, DM_PELSHEIGHT, DM_PELSWIDTH, DM_POSITION,
-        ENUM_CURRENT_SETTINGS, ENUM_DISPLAY_SETTINGS_FLAGS, ENUM_DISPLAY_SETTINGS_MODE,
+        DISPLAY_DEVICE_PRIMARY_DEVICE, DISPLAY_DEVICE_RDPUDD, DISPLAY_DEVICE_REMOTE, DM_BITSPERPEL,
+        DM_DISPLAYFIXEDOUTPUT, DM_DISPLAYFLAGS, DM_DISPLAYFREQUENCY, DM_DISPLAYORIENTATION,
+        DM_PELSHEIGHT, DM_PELSWIDTH, DM_POSITION, ENUM_CURRENT_SETTINGS,
+        ENUM_DISPLAY_SETTINGS_FLAGS, ENUM_DISPLAY_SETTINGS_MODE,
     },
 };
 
@@ -152,12 +152,8 @@ pub fn enumerate_display_adapters() -> DisplayInventory {
         let (available_modes, mode_enumeration_status) =
             available_display_modes(&adapter_device_name);
         let current_mode_after = current_display_mode(&adapter_device_name);
-        let current_mode = CurrentModeSample::from_samples(
-            current_mode_before,
-            current_mode_after,
-        );
-        let (monitors, monitor_enumeration_status) =
-            enumerate_monitors(&adapter_device_name);
+        let current_mode = CurrentModeSample::from_samples(current_mode_before, current_mode_after);
+        let (monitors, monitor_enumeration_status) = enumerate_monitors(&adapter_device_name);
 
         adapters.push(DisplayAdapter {
             index: adapter_index,
@@ -204,11 +200,8 @@ fn enumerate_monitors(
         else {
             return (monitors, DeviceEnumerationStatus::Complete);
         };
-        let interface_path = query_monitor_interface_path(
-            adapter_device_name,
-            monitor_index,
-            &raw_monitor,
-        );
+        let interface_path =
+            query_monitor_interface_path(adapter_device_name, monitor_index, &raw_monitor);
 
         monitors.push(DisplayMonitor {
             index: monitor_index,
@@ -254,10 +247,7 @@ fn query_monitor_interface_path(
     MonitorInterfacePath::Available { value, key }
 }
 
-fn same_monitor_enumeration_record(
-    expected: &DISPLAY_DEVICEW,
-    observed: &DISPLAY_DEVICEW,
-) -> bool {
+fn same_monitor_enumeration_record(expected: &DISPLAY_DEVICEW, observed: &DISPLAY_DEVICEW) -> bool {
     let expected_name = wide_array_to_valid_nonempty_key(&expected.DeviceName);
     let observed_name = wide_array_to_valid_nonempty_key(&observed.DeviceName);
 
@@ -269,7 +259,10 @@ fn same_monitor_enumeration_record(
 }
 
 fn valid_wide_arrays_equal(left: &[u16], right: &[u16]) -> bool {
-    match (wide_array_to_valid_key(left), wide_array_to_valid_key(right)) {
+    match (
+        wide_array_to_valid_key(left),
+        wide_array_to_valid_key(right),
+    ) {
         (Some(left), Some(right)) => left == right,
         _ => false,
     }
@@ -299,9 +292,7 @@ fn current_display_mode(adapter_device_name: &[u16]) -> Option<DisplayMode> {
         )
     };
 
-    succeeded
-        .as_bool()
-        .then(|| DisplayMode::from_raw(&mode))
+    succeeded.as_bool().then(|| DisplayMode::from_raw(&mode))
 }
 
 fn available_display_modes(
@@ -414,9 +405,7 @@ impl DisplayDeviceInfo {
             state_flags_raw: device.StateFlags.0,
             // These are positive SDK markers only. Their absence does not prove
             // that the caller is the sole local console session.
-            mirroring_driver_marker: device
-                .StateFlags
-                .contains(DISPLAY_DEVICE_MIRRORING_DRIVER),
+            mirroring_driver_marker: device.StateFlags.contains(DISPLAY_DEVICE_MIRRORING_DRIVER),
             remote_sdk_marker: device.StateFlags.contains(DISPLAY_DEVICE_REMOTE),
             rdpudd_sdk_marker: device.StateFlags.contains(DISPLAY_DEVICE_RDPUDD),
         }
@@ -537,9 +526,7 @@ fn wide_array_to_valid_nonempty_key(value: &[u16]) -> Option<Vec<u16>> {
 }
 
 fn wide_array_to_valid_key(value: &[u16]) -> Option<Vec<u16>> {
-    let end = value
-        .iter()
-        .position(|code_unit| *code_unit == 0)?;
+    let end = value.iter().position(|code_unit| *code_unit == 0)?;
 
     String::from_utf16(&value[..end]).ok()?;
     Some(value[..end].to_vec())

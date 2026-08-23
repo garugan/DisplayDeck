@@ -9,8 +9,8 @@ use crate::{
     display::{DeviceEnumerationStatus, DisplayInventory, ModeEnumerationStatus},
     mapping::{CrossMap, PathClassification, SourceMatch, TargetMatch},
     observation::{
-        CurrentObservationReport, ObservationClassification, ObservationRelation,
-        PathObservation, Rotation,
+        CurrentObservationReport, ObservationClassification, ObservationRelation, PathObservation,
+        Rotation,
     },
 };
 
@@ -173,9 +173,7 @@ impl GdiEnvironmentMarkers {
     }
 }
 
-pub fn collect_gdi_environment_markers(
-    inventory: &DisplayInventory,
-) -> GdiEnvironmentMarkers {
+pub fn collect_gdi_environment_markers(inventory: &DisplayInventory) -> GdiEnvironmentMarkers {
     let mut markers = GdiEnvironmentMarkers::default();
     for adapter in &inventory.adapters {
         if adapter.info.is_attached_to_desktop {
@@ -316,19 +314,35 @@ pub enum QualificationBlocker {
     InventoryIncomplete,
     CurrentTupleCaptureIncomplete,
     NoActivePaths,
-    MultipleActivePaths { count: usize },
-    NonExactMappingPaths { count: usize },
-    CloneSourcePaths { count: usize },
-    NonExactObservationPaths { count: usize },
+    MultipleActivePaths {
+        count: usize,
+    },
+    NonExactMappingPaths {
+        count: usize,
+    },
+    CloneSourcePaths {
+        count: usize,
+    },
+    NonExactObservationPaths {
+        count: usize,
+    },
     FractionalRefreshRelationUnresolved {
         comparisons: usize,
         distinct: usize,
     },
-    UnqualifiedOutputTechnologyPaths { count: usize },
-    CcdNativeEvidenceMarkersObserved { occurrences: usize },
-    GdiEnvironmentMarkersObserved { occurrences: usize },
+    UnqualifiedOutputTechnologyPaths {
+        count: usize,
+    },
+    CcdNativeEvidenceMarkersObserved {
+        occurrences: usize,
+    },
+    GdiEnvironmentMarkersObserved {
+        occurrences: usize,
+    },
     GdiActiveCoverageMismatch,
-    CurrentNotListedAdapters { count: usize },
+    CurrentNotListedAdapters {
+        count: usize,
+    },
     NoCandidateRecords,
     NoActiveAdapterLabUnqualifiedCandidates {
         active_adapters: usize,
@@ -381,38 +395,24 @@ impl HardExclusionHistogram {
     fn record(&mut self, reason: &HardExclusion) {
         let slot = match reason {
             HardExclusion::TupleIncomplete => &mut self.tuple_incomplete,
-            HardExclusion::AdapterNotAttachedToDesktop => {
-                &mut self.adapter_not_attached_to_desktop
-            }
-            HardExclusion::AdapterEnumerationIncomplete => {
-                &mut self.adapter_enumeration_incomplete
-            }
-            HardExclusion::MonitorEnumerationIncomplete => {
-                &mut self.monitor_enumeration_incomplete
-            }
+            HardExclusion::AdapterNotAttachedToDesktop => &mut self.adapter_not_attached_to_desktop,
+            HardExclusion::AdapterEnumerationIncomplete => &mut self.adapter_enumeration_incomplete,
+            HardExclusion::MonitorEnumerationIncomplete => &mut self.monitor_enumeration_incomplete,
             HardExclusion::EnumerationEmptyOrUnavailable => {
                 &mut self.enumeration_empty_or_unavailable
             }
             HardExclusion::EnumerationIncomplete => &mut self.enumeration_incomplete,
             HardExclusion::CurrentUnavailable => &mut self.current_unavailable,
-            HardExclusion::CurrentChangedDuringCapture => {
-                &mut self.current_changed_during_capture
-            }
+            HardExclusion::CurrentChangedDuringCapture => &mut self.current_changed_during_capture,
             HardExclusion::CurrentTupleIncomplete => &mut self.current_tuple_incomplete,
             HardExclusion::CurrentNotListed => &mut self.current_not_listed,
-            HardExclusion::CurrentExactRecordAmbiguous => {
-                &mut self.current_exact_record_ambiguous
-            }
+            HardExclusion::CurrentExactRecordAmbiguous => &mut self.current_exact_record_ambiguous,
             HardExclusion::ExactTupleDuplicate => &mut self.exact_tuple_duplicate,
-            HardExclusion::DriverDefaultFrequency { .. } => {
-                &mut self.driver_default_frequency
-            }
+            HardExclusion::DriverDefaultFrequency { .. } => &mut self.driver_default_frequency,
             HardExclusion::CurrentDriverDefaultFrequency { .. } => {
                 &mut self.current_driver_default_frequency
             }
-            HardExclusion::BitsPerPixelBelow32 { .. } => {
-                &mut self.bits_per_pixel_below_32
-            }
+            HardExclusion::BitsPerPixelBelow32 { .. } => &mut self.bits_per_pixel_below_32,
             HardExclusion::CurrentBitsPerPixelBelow32 { .. } => {
                 &mut self.current_bits_per_pixel_below_32
             }
@@ -524,13 +524,7 @@ fn build_read_only_qualification(
     catalog: &CandidateCatalog,
 ) -> ReadOnlyQualification {
     let markers = gdi_coverage_markers_for_test(mapping);
-    build_read_only_qualification_with_markers(
-        snapshot,
-        mapping,
-        observation,
-        catalog,
-        markers,
-    )
+    build_read_only_qualification_with_markers(snapshot, mapping, observation, catalog, markers)
 }
 
 #[cfg(test)]
@@ -582,9 +576,7 @@ pub fn build_read_only_qualification_with_markers(
     };
     let observation_status = match observation {
         ObservationCapture::SampledStable(_) => ObservationCaptureStatus::SampledStable,
-        ObservationCapture::Unavailable(reason) => {
-            ObservationCaptureStatus::Unavailable(*reason)
-        }
+        ObservationCapture::Unavailable(reason) => ObservationCaptureStatus::Unavailable(*reason),
     };
 
     let stable_mapping = mapping.stable_report();
@@ -597,9 +589,7 @@ pub fn build_read_only_qualification_with_markers(
     let active_paths = match stable_snapshot {
         None => ActivePathAssessment::NotObserved,
         Some(snapshot) if snapshot.paths.is_empty() => ActivePathAssessment::NoActivePaths,
-        Some(snapshot) if snapshot.paths.len() == 1 => {
-            ActivePathAssessment::SingleActivePath
-        }
+        Some(snapshot) if snapshot.paths.len() == 1 => ActivePathAssessment::SingleActivePath,
         Some(snapshot) => ActivePathAssessment::MultipleActivePaths {
             count: snapshot.paths.len(),
         },
@@ -635,10 +625,7 @@ pub fn build_read_only_qualification_with_markers(
                 .find(|adapter| adapter.adapter_index == *adapter_index)
                 .map(|adapter| {
                     adapter.enumeration_status == ModeEnumerationStatus::Complete
-                        && matches!(
-                            &adapter.current_tuple_status,
-                            CurrentTupleStatus::Complete
-                        )
+                        && matches!(&adapter.current_tuple_status, CurrentTupleStatus::Complete)
                 })
                 .unwrap_or(false)
         });
@@ -729,7 +716,10 @@ pub fn build_read_only_qualification_with_markers(
         .iter()
         .flat_map(|adapter| &adapter.candidates)
         .filter(|candidate| {
-            matches!(&candidate.eligibility, CandidateEligibility::LabUnqualified { .. })
+            matches!(
+                &candidate.eligibility,
+                CandidateEligibility::LabUnqualified { .. }
+            )
         })
         .count();
     let hard_excluded_candidates = candidate_records - lab_unqualified_candidates;
@@ -762,8 +752,10 @@ pub fn build_read_only_qualification_with_markers(
         {
             many_candidate_adapters.push(adapter.adapter_index);
         }
-        if matches!(&adapter.current_membership, CurrentMembership::NotListedExact { .. })
-            && current_not_listed_adapters.len() < MAX_QUALIFICATION_ADAPTERS
+        if matches!(
+            &adapter.current_membership,
+            CurrentMembership::NotListedExact { .. }
+        ) && current_not_listed_adapters.len() < MAX_QUALIFICATION_ADAPTERS
         {
             current_not_listed_adapters.push(adapter.adapter_index);
         }
@@ -777,9 +769,8 @@ pub fn build_read_only_qualification_with_markers(
     }
 
     let invariants = qualification_invariants(snapshot, mapping, observation, catalog);
-    let has_non_distinct_fractional_comparison =
-        positive_non_integral_refresh_comparisons
-            != positive_non_integral_refresh_distinct_comparisons;
+    let has_non_distinct_fractional_comparison = positive_non_integral_refresh_comparisons
+        != positive_non_integral_refresh_distinct_comparisons;
     let capture_has_fail_closed_evidence = mapping_failure_is_fail_closed(mapping_status)
         || observation_failure_is_fail_closed(observation_status);
     let capture_has_not_assessable_failure = mapping_failure_is_not_assessable(mapping_status)
@@ -955,9 +946,7 @@ fn assess_gdi_active_coverage(
                     usize::try_from(location.adapter_index),
                     bit_for_bounded_index(location.monitor_index),
                 ) {
-                    if let Some(adapter_mask) =
-                        exact_target_monitor_masks.get_mut(adapter_index)
-                    {
+                    if let Some(adapter_mask) = exact_target_monitor_masks.get_mut(adapter_index) {
                         *adapter_mask |= monitor_mask;
                     } else {
                         indices_in_range = false;
@@ -1000,8 +989,7 @@ fn mapping_failure_is_fail_closed(status: MappingCaptureStatus) -> bool {
     match status {
         MappingCaptureStatus::SampledStable => false,
         MappingCaptureStatus::Unavailable(
-            MappingCaptureFailure::InventoryBoundExceeded
-            | MappingCaptureFailure::StaleSnapshot,
+            MappingCaptureFailure::InventoryBoundExceeded | MappingCaptureFailure::StaleSnapshot,
         ) => true,
         MappingCaptureStatus::Unavailable(
             MappingCaptureFailure::InitialCcdQueryFailed(reason)
@@ -1020,8 +1008,7 @@ fn mapping_failure_is_not_assessable(status: MappingCaptureStatus) -> bool {
         MappingCaptureStatus::Unavailable(MappingCaptureFailure::InternalInconsistency) => true,
         MappingCaptureStatus::SampledStable
         | MappingCaptureStatus::Unavailable(
-            MappingCaptureFailure::InventoryBoundExceeded
-            | MappingCaptureFailure::StaleSnapshot,
+            MappingCaptureFailure::InventoryBoundExceeded | MappingCaptureFailure::StaleSnapshot,
         ) => false,
     }
 }
@@ -1075,9 +1062,7 @@ fn ccd_failure_is_not_assessable(reason: CcdQueryFailureClass) -> bool {
     )
 }
 
-fn collect_ccd_native_evidence_markers(
-    snapshot: &CcdSnapshot,
-) -> CcdNativeEvidenceMarkers {
+fn collect_ccd_native_evidence_markers(snapshot: &CcdSnapshot) -> CcdNativeEvidenceMarkers {
     let mut markers = CcdNativeEvidenceMarkers::default();
 
     for path in &snapshot.paths {
@@ -1395,10 +1380,7 @@ fn path_observation_index(path: &PathObservation) -> usize {
     }
 }
 
-fn indices_form_exact_range(
-    expected_len: usize,
-    indices: impl Iterator<Item = usize>,
-) -> bool {
+fn indices_form_exact_range(expected_len: usize, indices: impl Iterator<Item = usize>) -> bool {
     let mut seen = vec![false; expected_len];
     for index in indices {
         let Some(slot) = seen.get_mut(index) else {
@@ -1437,7 +1419,10 @@ fn summarize_adapter(adapter: &crate::candidate::AdapterCandidateCatalog) -> Can
         .candidates
         .iter()
         .filter(|candidate| {
-            matches!(&candidate.eligibility, CandidateEligibility::LabUnqualified { .. })
+            matches!(
+                &candidate.eligibility,
+                CandidateEligibility::LabUnqualified { .. }
+            )
         })
         .count();
 
@@ -1478,9 +1463,7 @@ mod tests {
             ExpectedObservationStatus, FrequencyLabel, ModeCandidate, PolicyRelations,
             QualificationGap,
         },
-        ccd::{
-            AdapterLuid, CcdPath, CcdSource, CcdSourceMode, CcdTarget, CcdTargetMode,
-        },
+        ccd::{AdapterLuid, CcdPath, CcdSource, CcdSourceMode, CcdTarget, CcdTargetMode},
         mapping::{MonitorLocation, PathMapping, SourceMatch, TargetMatch},
         observation::{CurrentObservation, GdiRefresh},
     };
@@ -1523,8 +1506,7 @@ mod tests {
                 display_flags: crate::candidate::FieldRelation::Exact,
             },
             advanced_color_evidence: AdvancedColorEvidence::NotObserved,
-            expected_observation:
-                ExpectedObservationStatus::MissingNonCurrentRequiresQualification,
+            expected_observation: ExpectedObservationStatus::MissingNonCurrentRequiresQualification,
             eligibility,
         }
     }
@@ -1536,7 +1518,10 @@ mod tests {
         let lab = candidates
             .iter()
             .filter(|candidate| {
-                matches!(&candidate.eligibility, CandidateEligibility::LabUnqualified { .. })
+                matches!(
+                    &candidate.eligibility,
+                    CandidateEligibility::LabUnqualified { .. }
+                )
             })
             .count();
         let summary = CandidateSummary {
@@ -1834,13 +1819,17 @@ mod tests {
     #[test]
     fn stable_report_helpers_do_not_expose_unavailable_payloads() {
         assert!(mapping(1, 1).stable_report().is_some());
-        assert!(MappingCapture::Unavailable(MappingCaptureFailure::StaleSnapshot)
-            .stable_report()
-            .is_none());
+        assert!(
+            MappingCapture::Unavailable(MappingCaptureFailure::StaleSnapshot)
+                .stable_report()
+                .is_none()
+        );
         assert!(exact_observation(1).stable_report().is_some());
-        assert!(ObservationCapture::Unavailable(ObservationCaptureFailure::StaleSnapshot)
-            .stable_report()
-            .is_none());
+        assert!(
+            ObservationCapture::Unavailable(ObservationCaptureFailure::StaleSnapshot)
+                .stable_report()
+                .is_none()
+        );
     }
 
     #[test]
@@ -1853,10 +1842,7 @@ mod tests {
             &lab_catalog(1),
         );
 
-        assert_eq!(
-            report.disposition,
-            Disposition::BlockedByMissingEvidence
-        );
+        assert_eq!(report.disposition, Disposition::BlockedByMissingEvidence);
         assert_eq!(report.mutation_readiness, MutationReadiness::Blocked);
         assert_eq!(report.g1a_gate, G1AGate::NotReadyEvidenceGaps);
         assert_eq!(report.phase_1a_closure, Phase1AClosure::NotClaimed);
@@ -1871,10 +1857,7 @@ mod tests {
             &ObservationCapture::Unavailable(ObservationCaptureFailure::CrossMapUnavailable),
             &lab_catalog(1),
         );
-        assert_eq!(
-            report.disposition,
-            Disposition::RejectedByObservedEvidence
-        );
+        assert_eq!(report.disposition, Disposition::RejectedByObservedEvidence);
     }
 
     #[test]
@@ -1884,11 +1867,9 @@ mod tests {
             &MappingCapture::Unavailable(MappingCaptureFailure::InitialCcdQueryFailed(
                 CcdQueryFailureClass::ApiError,
             )),
-            &ObservationCapture::Unavailable(
-                ObservationCaptureFailure::InitialCcdQueryFailed(
-                    CcdQueryFailureClass::ApiError,
-                ),
-            ),
+            &ObservationCapture::Unavailable(ObservationCaptureFailure::InitialCcdQueryFailed(
+                CcdQueryFailureClass::ApiError,
+            )),
             &lab_catalog(1),
         );
         assert_eq!(report.disposition, Disposition::NotAssessable);
@@ -1901,17 +1882,12 @@ mod tests {
             &MappingCapture::Unavailable(MappingCaptureFailure::InitialCcdQueryFailed(
                 CcdQueryFailureClass::ConsoleOrDesktopAccessDenied,
             )),
-            &ObservationCapture::Unavailable(
-                ObservationCaptureFailure::InitialCcdQueryFailed(
-                    CcdQueryFailureClass::ConsoleOrDesktopAccessDenied,
-                ),
-            ),
+            &ObservationCapture::Unavailable(ObservationCaptureFailure::InitialCcdQueryFailed(
+                CcdQueryFailureClass::ConsoleOrDesktopAccessDenied,
+            )),
             &lab_catalog(1),
         );
-        assert_eq!(
-            report.disposition,
-            Disposition::RejectedByObservedEvidence
-        );
+        assert_eq!(report.disposition, Disposition::RejectedByObservedEvidence);
         assert!(report
             .evidence_gaps
             .contains(&ReadOnlyEvidenceGap::SessionAndRdpEvidenceNotObserved));
@@ -1924,11 +1900,9 @@ mod tests {
             &MappingCapture::Unavailable(MappingCaptureFailure::InitialCcdQueryFailed(
                 CcdQueryFailureClass::InvalidNativeEvidence,
             )),
-            &ObservationCapture::Unavailable(
-                ObservationCaptureFailure::InitialCcdQueryFailed(
-                    CcdQueryFailureClass::InvalidNativeEvidence,
-                ),
-            ),
+            &ObservationCapture::Unavailable(ObservationCaptureFailure::InitialCcdQueryFailed(
+                CcdQueryFailureClass::InvalidNativeEvidence,
+            )),
             &lab_catalog(1),
         );
         assert_eq!(report.disposition, Disposition::NotAssessable);
@@ -1947,10 +1921,7 @@ mod tests {
             report.active_paths,
             ActivePathAssessment::MultipleActivePaths { count: 3 }
         );
-        assert_eq!(
-            report.disposition,
-            Disposition::RejectedByObservedEvidence
-        );
+        assert_eq!(report.disposition, Disposition::RejectedByObservedEvidence);
     }
 
     #[test]
@@ -1964,10 +1935,7 @@ mod tests {
             &lab_catalog(1),
         );
         assert_eq!(report.clone_source_paths, 2);
-        assert_eq!(
-            report.disposition,
-            Disposition::RejectedByObservedEvidence
-        );
+        assert_eq!(report.disposition, Disposition::RejectedByObservedEvidence);
     }
 
     #[test]
@@ -1991,10 +1959,7 @@ mod tests {
         );
         assert_eq!(report.portrait_rotation_paths, 1);
         assert_eq!(report.portrait_rotation_exact_paths, 1);
-        assert_eq!(
-            report.disposition,
-            Disposition::BlockedByMissingEvidence
-        );
+        assert_eq!(report.disposition, Disposition::BlockedByMissingEvidence);
     }
 
     #[test]
@@ -2017,14 +1982,8 @@ mod tests {
             &lab_catalog(1),
         );
         assert_eq!(report.positive_non_integral_refresh_comparisons, 1);
-        assert_eq!(
-            report.positive_non_integral_refresh_distinct_comparisons,
-            1
-        );
-        assert_eq!(
-            report.disposition,
-            Disposition::RejectedByObservedEvidence
-        );
+        assert_eq!(report.positive_non_integral_refresh_distinct_comparisons, 1);
+        assert_eq!(report.disposition, Disposition::RejectedByObservedEvidence);
     }
 
     #[test]
@@ -2047,14 +2006,8 @@ mod tests {
             &lab_catalog(1),
         );
         assert_eq!(report.positive_non_integral_refresh_comparisons, 1);
-        assert_eq!(
-            report.positive_non_integral_refresh_distinct_comparisons,
-            0
-        );
-        assert_eq!(
-            report.disposition,
-            Disposition::RejectedByObservedEvidence
-        );
+        assert_eq!(report.positive_non_integral_refresh_distinct_comparisons, 0);
+        assert_eq!(report.disposition, Disposition::RejectedByObservedEvidence);
     }
 
     #[test]
@@ -2066,7 +2019,10 @@ mod tests {
             &exact_observation(1),
             &lab_catalog(9),
         );
-        assert_eq!(report.candidate_volume, CandidateVolume::NineOrMore { count: 9 });
+        assert_eq!(
+            report.candidate_volume,
+            CandidateVolume::NineOrMore { count: 9 }
+        );
         assert_eq!(report.many_candidate_adapters, vec![0]);
     }
 
@@ -2139,10 +2095,7 @@ mod tests {
         assert_eq!(report.lab_unqualified_candidates, 0);
         assert_eq!(report.hard_exclusion_histogram.current_not_listed, 619);
         assert_eq!(report.current_not_listed_adapters, vec![0]);
-        assert_eq!(
-            report.disposition,
-            Disposition::RejectedByObservedEvidence
-        );
+        assert_eq!(report.disposition, Disposition::RejectedByObservedEvidence);
     }
 
     #[test]
@@ -2173,10 +2126,7 @@ mod tests {
             blocker,
             QualificationBlocker::NoActiveAdapterLabUnqualifiedCandidates { .. }
         )));
-        assert_eq!(
-            report.disposition,
-            Disposition::RejectedByObservedEvidence
-        );
+        assert_eq!(report.disposition, Disposition::RejectedByObservedEvidence);
     }
 
     #[test]
@@ -2199,10 +2149,7 @@ mod tests {
                 &lab_catalog(1),
             );
             assert_eq!(report.unqualified_output_technology_paths, 1);
-            assert_eq!(
-                report.disposition,
-                Disposition::RejectedByObservedEvidence
-            );
+            assert_eq!(report.disposition, Disposition::RejectedByObservedEvidence);
         }
     }
 
@@ -2224,16 +2171,31 @@ mod tests {
             &lab_catalog(1),
         );
 
-        assert_eq!(report.ccd_native_evidence_markers.boost_refresh_rate_paths, 1);
-        assert_eq!(report.ccd_native_evidence_markers.unknown_source_status_paths, 1);
-        assert_eq!(report.ccd_native_evidence_markers.unknown_target_status_paths, 1);
+        assert_eq!(
+            report.ccd_native_evidence_markers.boost_refresh_rate_paths,
+            1
+        );
+        assert_eq!(
+            report
+                .ccd_native_evidence_markers
+                .unknown_source_status_paths,
+            1
+        );
+        assert_eq!(
+            report
+                .ccd_native_evidence_markers
+                .unknown_target_status_paths,
+            1
+        );
         assert_eq!(report.ccd_native_evidence_markers.hmd_paths, 1);
         assert_eq!(report.ccd_native_evidence_markers.unknown_scaling_paths, 1);
-        assert_eq!(report.ccd_native_evidence_markers.non_gdi_pixel_format_paths, 1);
         assert_eq!(
-            report.disposition,
-            Disposition::RejectedByObservedEvidence
+            report
+                .ccd_native_evidence_markers
+                .non_gdi_pixel_format_paths,
+            1
         );
+        assert_eq!(report.disposition, Disposition::RejectedByObservedEvidence);
     }
 
     #[test]
@@ -2250,10 +2212,7 @@ mod tests {
             markers,
         );
         assert_eq!(report.gdi_environment_markers.remote_sdk_devices, 1);
-        assert_eq!(
-            report.disposition,
-            Disposition::RejectedByObservedEvidence
-        );
+        assert_eq!(report.disposition, Disposition::RejectedByObservedEvidence);
         assert!(report
             .evidence_gaps
             .contains(&ReadOnlyEvidenceGap::SessionAndRdpEvidenceNotObserved));
@@ -2331,10 +2290,7 @@ mod tests {
         assert!(report
             .blockers
             .contains(&QualificationBlocker::GdiActiveCoverageMismatch));
-        assert_eq!(
-            report.disposition,
-            Disposition::RejectedByObservedEvidence
-        );
+        assert_eq!(report.disposition, Disposition::RejectedByObservedEvidence);
     }
 
     #[test]
@@ -2351,7 +2307,10 @@ mod tests {
             &catalog,
         );
         assert!(!report.invariants.read_only_counters_zero);
-        assert_eq!(report.ccd_native_evidence_markers.boost_refresh_rate_paths, 1);
+        assert_eq!(
+            report.ccd_native_evidence_markers.boost_refresh_rate_paths,
+            1
+        );
         assert_eq!(report.disposition, Disposition::NotAssessable);
     }
 

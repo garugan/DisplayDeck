@@ -2,8 +2,7 @@ use std::fmt;
 
 use windows::Win32::Graphics::Gdi::{
     DISPLAYCONFIG_PATH_ACTIVE, DISPLAYCONFIG_SOURCE_IN_USE,
-    DISPLAYCONFIG_TARGET_FORCED_AVAILABILITY_BOOT,
-    DISPLAYCONFIG_TARGET_FORCED_AVAILABILITY_PATH,
+    DISPLAYCONFIG_TARGET_FORCED_AVAILABILITY_BOOT, DISPLAYCONFIG_TARGET_FORCED_AVAILABILITY_PATH,
     DISPLAYCONFIG_TARGET_FORCED_AVAILABILITY_SYSTEM, DISPLAYCONFIG_TARGET_IN_USE,
 };
 
@@ -96,10 +95,9 @@ pub fn cross_map(snapshot: &CcdSnapshot, adapters: &[DisplayAdapter]) -> CrossMa
         };
 
         let parent_adapter_consistent = match (&source_match, &target_match) {
-            (
-                SourceMatch::Exact { adapter_index },
-                TargetMatch::Exact { location },
-            ) => Some(*adapter_index == location.adapter_index),
+            (SourceMatch::Exact { adapter_index }, TargetMatch::Exact { location }) => {
+                Some(*adapter_index == location.adapter_index)
+            }
             _ => None,
         };
         let target_attached_to_desktop = match &target_match {
@@ -124,9 +122,8 @@ pub fn cross_map(snapshot: &CcdSnapshot, adapters: &[DisplayAdapter]) -> CrossMa
         let target_available = path.target.available;
         let source_in_use = path.source.status_flags & DISPLAYCONFIG_SOURCE_IN_USE != 0;
         let target_in_use = path.target.status_flags & DISPLAYCONFIG_TARGET_IN_USE != 0;
-        let target_forced_availability = path.target.status_flags
-            & DISPLAYCONFIG_TARGET_FORCED_AVAILABILITY_MASK
-            != 0;
+        let target_forced_availability =
+            path.target.status_flags & DISPLAYCONFIG_TARGET_FORCED_AVAILABILITY_MASK != 0;
         let target_friendly_name_forced =
             path.target.device_name_flags & TARGET_NAME_FLAG_FRIENDLY_NAME_FORCED != 0;
         let target_name_has_unknown_flags =

@@ -6,18 +6,13 @@ use windows::Win32::Graphics::Gdi::{
 };
 
 use crate::display::{
-    devmode_public_size_bytes, CurrentModeSample, DeviceEnumerationStatus,
-    DisplayAdapter, DisplayInventory, DisplayMode, DisplayPosition,
-    ModeEnumerationStatus,
+    devmode_public_size_bytes, CurrentModeSample, DeviceEnumerationStatus, DisplayAdapter,
+    DisplayInventory, DisplayMode, DisplayPosition, ModeEnumerationStatus,
 };
 
-const REQUIRED_FIELD_MASK: u32 = DM_BITSPERPEL.0
-    | DM_PELSWIDTH.0
-    | DM_PELSHEIGHT.0
-    | DM_DISPLAYFLAGS.0
-    | DM_DISPLAYFREQUENCY.0;
-const OPTIONAL_FIELD_MASK: u32 =
-    DM_POSITION.0 | DM_DISPLAYORIENTATION.0 | DM_DISPLAYFIXEDOUTPUT.0;
+const REQUIRED_FIELD_MASK: u32 =
+    DM_BITSPERPEL.0 | DM_PELSWIDTH.0 | DM_PELSHEIGHT.0 | DM_DISPLAYFLAGS.0 | DM_DISPLAYFREQUENCY.0;
+const OPTIONAL_FIELD_MASK: u32 = DM_POSITION.0 | DM_DISPLAYORIENTATION.0 | DM_DISPLAYFIXEDOUTPUT.0;
 const ALLOWLISTED_FIELD_MASK: u32 = REQUIRED_FIELD_MASK | OPTIONAL_FIELD_MASK;
 // DEVMODEW documents legacy grayscale (0x1), interlaced (0x2), and text-mode
 // (0x4) bits for dmDisplayFlags. Preserve these raw bits, but do not classify an
@@ -280,10 +275,10 @@ struct CandidateGroups {
 }
 
 pub fn build_candidate_catalog(inventory: &DisplayInventory) -> CandidateCatalog {
-    let monitor_inventory_complete = inventory.adapters.iter().all(|adapter| {
-        adapter.monitor_enumeration_status
-            == DeviceEnumerationStatus::Complete
-    });
+    let monitor_inventory_complete = inventory
+        .adapters
+        .iter()
+        .all(|adapter| adapter.monitor_enumeration_status == DeviceEnumerationStatus::Complete);
     let adapters = inventory
         .adapters
         .iter()
@@ -295,13 +290,12 @@ pub fn build_candidate_catalog(inventory: &DisplayInventory) -> CandidateCatalog
             )
         })
         .collect::<Vec<_>>();
-    let summary = adapters.iter().fold(
-        CandidateSummary::default(),
-        |mut total, adapter| {
+    let summary = adapters
+        .iter()
+        .fold(CandidateSummary::default(), |mut total, adapter| {
             total.add(adapter.summary);
             total
-        },
-    );
+        });
 
     CandidateCatalog {
         adapter_enumeration_status: inventory.adapter_enumeration_status,
@@ -344,10 +338,7 @@ fn classify_adapter(
                 &current_membership,
                 current_tuple.as_ref(),
                 groups.exact_duplicate_refs.get(&seed.index).copied(),
-                groups
-                    .projection_collision_refs
-                    .get(&seed.index)
-                    .copied(),
+                groups.projection_collision_refs.get(&seed.index).copied(),
             )
         })
         .collect::<Vec<_>>();
@@ -393,14 +384,8 @@ fn assess_current(
                 )
             }
         }
-        CurrentModeSample::Unavailable => {
-            (CurrentTupleStatus::Unavailable, None, None)
-        }
-        CurrentModeSample::Changed { .. } => (
-            CurrentTupleStatus::ChangedDuringCapture,
-            None,
-            None,
-        ),
+        CurrentModeSample::Unavailable => (CurrentTupleStatus::Unavailable, None, None),
+        CurrentModeSample::Changed { .. } => (CurrentTupleStatus::ChangedDuringCapture, None, None),
     }
 }
 
@@ -436,8 +421,7 @@ fn classify_current_membership(
     let exact_indices = seeds
         .iter()
         .filter(|seed| {
-            seed.tuple_status == TupleStatus::Complete
-                && &seed.apply_tuple == current_tuple
+            seed.tuple_status == TupleStatus::Complete && &seed.apply_tuple == current_tuple
         })
         .map(|seed| seed.index)
         .collect::<Vec<_>>();
@@ -580,9 +564,7 @@ fn classify_candidate(
     };
     let policy_relations = compare_policy(current_tuple, &seed.apply_tuple);
     let expected_observation = match current_relation {
-        CurrentRelation::Exact => {
-            ExpectedObservationStatus::MissingCurrentCandidateNotLinked
-        }
+        CurrentRelation::Exact => ExpectedObservationStatus::MissingCurrentCandidateNotLinked,
         CurrentRelation::Different => {
             ExpectedObservationStatus::MissingNonCurrentRequiresQualification
         }
@@ -623,10 +605,7 @@ fn classify_candidate(
     }
 }
 
-fn compare_policy(
-    current: Option<&ApplyTuple>,
-    candidate: &ApplyTuple,
-) -> PolicyRelations {
+fn compare_policy(current: Option<&ApplyTuple>, candidate: &ApplyTuple) -> PolicyRelations {
     let Some(current) = current else {
         return PolicyRelations {
             position: FieldRelation::NotReported,
@@ -641,10 +620,7 @@ fn compare_policy(
         position: compare_optional(current.position, candidate.position),
         orientation: compare_optional(current.orientation, candidate.orientation),
         fixed_output: compare_optional(current.fixed_output, candidate.fixed_output),
-        bits_per_pixel: compare_optional(
-            current.bits_per_pixel,
-            candidate.bits_per_pixel,
-        ),
+        bits_per_pixel: compare_optional(current.bits_per_pixel, candidate.bits_per_pixel),
         display_flags: compare_optional(current.display_flags, candidate.display_flags),
     }
 }
@@ -720,16 +696,12 @@ fn classify_eligibility(
     if let Some(raw) = driver_default_frequency(seed.apply_tuple.display_frequency_hz) {
         reasons.push(HardExclusion::DriverDefaultFrequency { raw });
     }
-    if let Some(raw) = current_tuple
-        .and_then(|current| driver_default_frequency(current.display_frequency_hz))
+    if let Some(raw) =
+        current_tuple.and_then(|current| driver_default_frequency(current.display_frequency_hz))
     {
         reasons.push(HardExclusion::CurrentDriverDefaultFrequency { raw });
     }
-    if let Some(raw) = seed
-        .apply_tuple
-        .bits_per_pixel
-        .filter(|bits| *bits < 32)
-    {
+    if let Some(raw) = seed.apply_tuple.bits_per_pixel.filter(|bits| *bits < 32) {
         reasons.push(HardExclusion::BitsPerPixelBelow32 { raw });
     }
     if let Some(raw) = current_tuple
@@ -755,16 +727,8 @@ fn classify_eligibility(
     }
 
     add_policy_exclusion(&mut reasons, PolicyField::Position, policy.position);
-    add_policy_exclusion(
-        &mut reasons,
-        PolicyField::Orientation,
-        policy.orientation,
-    );
-    add_policy_exclusion(
-        &mut reasons,
-        PolicyField::FixedOutput,
-        policy.fixed_output,
-    );
+    add_policy_exclusion(&mut reasons, PolicyField::Orientation, policy.orientation);
+    add_policy_exclusion(&mut reasons, PolicyField::FixedOutput, policy.fixed_output);
     add_policy_exclusion(
         &mut reasons,
         PolicyField::BitsPerPixel,
@@ -977,10 +941,7 @@ fn assess_tuple(mode: &DisplayMode, tuple: &ApplyTuple) -> Vec<TupleIssue> {
         (DM_PELSWIDTH.0, tuple.width_pixels.is_some()),
         (DM_PELSHEIGHT.0, tuple.height_pixels.is_some()),
         (DM_DISPLAYFLAGS.0, tuple.display_flags.is_some()),
-        (
-            DM_DISPLAYFREQUENCY.0,
-            tuple.display_frequency_hz.is_some(),
-        ),
+        (DM_DISPLAYFREQUENCY.0, tuple.display_frequency_hz.is_some()),
     ] {
         if tuple.field_mask & mask != 0 && !value_is_some {
             issues.push(TupleIssue::MissingCapturedValue { field_mask: mask });
@@ -1121,8 +1082,7 @@ impl fmt::Display for ExactDuplicateStatus {
             Self::ExactTupleDuplicate { group } => write!(
                 formatter,
                 "ExactTupleDuplicate (Group {} / {} records)",
-                group.group_id,
-                group.record_count
+                group.group_id, group.record_count
             ),
             Self::NotComparableIncomplete => write!(formatter, "NotComparableIncomplete"),
         }
@@ -1151,10 +1111,16 @@ impl fmt::Display for ExpectedObservationStatus {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::MissingCurrentCandidateNotLinked => {
-                write!(formatter, "Missing (current candidate not linked in Step 7)")
+                write!(
+                    formatter,
+                    "Missing (current candidate not linked in Step 7)"
+                )
             }
             Self::MissingNonCurrentRequiresQualification => {
-                write!(formatter, "Missing (non-current candidate requires qualification)")
+                write!(
+                    formatter,
+                    "Missing (non-current candidate requires qualification)"
+                )
             }
             Self::MissingCurrentRelationUnavailable => {
                 write!(formatter, "Missing (current relation unavailable)")
@@ -1195,9 +1161,7 @@ fn format_debug_list<T: fmt::Debug>(values: &[T]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::display::{
-        DisplayDeviceInfo, DisplayInventory, EnumeratedDisplayMode,
-    };
+    use crate::display::{DisplayDeviceInfo, DisplayInventory, EnumeratedDisplayMode};
 
     fn complete_mode(width: u32, height: u32, frequency: u32) -> DisplayMode {
         DisplayMode {
@@ -1215,10 +1179,7 @@ mod tests {
         }
     }
 
-    fn adapter(
-        current: CurrentModeSample,
-        modes: Vec<DisplayMode>,
-    ) -> DisplayAdapter {
+    fn adapter(current: CurrentModeSample, modes: Vec<DisplayMode>) -> DisplayAdapter {
         DisplayAdapter {
             index: 7,
             info: DisplayDeviceInfo {
@@ -1265,7 +1226,10 @@ mod tests {
 
         assert_eq!(seed.tuple_status, TupleStatus::Complete);
         assert!(seed.tuple_issues.is_empty());
-        assert_eq!(seed.apply_tuple.position, Some(DisplayPosition { x: 0, y: 0 }));
+        assert_eq!(
+            seed.apply_tuple.position,
+            Some(DisplayPosition { x: 0, y: 0 })
+        );
     }
 
     #[test]
@@ -1277,9 +1241,11 @@ mod tests {
         let seed = CandidateSeed::new(0, &mode);
 
         assert_eq!(seed.tuple_status, TupleStatus::Incomplete);
-        assert!(seed.tuple_issues.contains(&TupleIssue::MissingRequiredFields {
-            mask: DM_BITSPERPEL.0,
-        }));
+        assert!(seed
+            .tuple_issues
+            .contains(&TupleIssue::MissingRequiredFields {
+                mask: DM_BITSPERPEL.0,
+            }));
         assert!(seed
             .tuple_issues
             .contains(&TupleIssue::UnsupportedFields { mask: 1 }));
@@ -1335,8 +1301,14 @@ mod tests {
         let zero = complete_mode(1280, 720, 0);
         let one = complete_mode(1280, 720, 1);
         assert_ne!(ApplyTuple::from(&zero), ApplyTuple::from(&one));
-        assert_eq!(CandidateSeed::new(0, &zero).tuple_status, TupleStatus::Complete);
-        assert_eq!(CandidateSeed::new(1, &one).tuple_status, TupleStatus::Complete);
+        assert_eq!(
+            CandidateSeed::new(0, &zero).tuple_status,
+            TupleStatus::Complete
+        );
+        assert_eq!(
+            CandidateSeed::new(1, &one).tuple_status,
+            TupleStatus::Complete
+        );
 
         let report = catalog_for(adapter(
             CurrentModeSample::SampledStable(current.clone()),
@@ -1403,8 +1375,7 @@ mod tests {
             report.candidates[1].policy_relations.bits_per_pixel,
             FieldRelation::Different
         );
-        let CandidateEligibility::HardExcluded { reasons } =
-            &report.candidates[1].eligibility
+        let CandidateEligibility::HardExcluded { reasons } = &report.candidates[1].eligibility
         else {
             panic!("24 bpp candidate must remain hard excluded");
         };
@@ -1432,12 +1403,8 @@ mod tests {
     #[test]
     fn incomplete_enumeration_does_not_claim_current_not_listed() {
         let current = complete_mode(1920, 1080, 60);
-        let mut value = adapter(
-            CurrentModeSample::SampledStable(current),
-            Vec::new(),
-        );
-        value.mode_enumeration_status =
-            ModeEnumerationStatus::LimitReached { limit: 4096 };
+        let mut value = adapter(CurrentModeSample::SampledStable(current), Vec::new());
+        value.mode_enumeration_status = ModeEnumerationStatus::LimitReached { limit: 4096 };
         let report = catalog_for(value);
 
         assert_eq!(
@@ -1449,10 +1416,7 @@ mod tests {
     #[test]
     fn empty_enumeration_does_not_claim_current_not_listed() {
         let current = complete_mode(1920, 1080, 60);
-        let mut value = adapter(
-            CurrentModeSample::SampledStable(current),
-            Vec::new(),
-        );
+        let mut value = adapter(CurrentModeSample::SampledStable(current), Vec::new());
         value.mode_enumeration_status = ModeEnumerationStatus::EmptyOrUnavailable;
         let report = catalog_for(value);
 
@@ -1471,9 +1435,7 @@ mod tests {
         assert_eq!(seed.tuple_status, TupleStatus::Incomplete);
         assert!(seed
             .tuple_issues
-            .contains(&TupleIssue::UnknownDisplayFlagBits {
-                mask: 0x8000_0000,
-            }));
+            .contains(&TupleIssue::UnknownDisplayFlagBits { mask: 0x8000_0000 }));
 
         let mut legacy = complete_mode(1920, 1080, 60);
         legacy.display_flags = Some(0x1);
@@ -1481,14 +1443,11 @@ mod tests {
             CurrentModeSample::SampledStable(legacy.clone()),
             vec![legacy],
         ));
-        let CandidateEligibility::HardExcluded { reasons } =
-            &report.candidates[0].eligibility
+        let CandidateEligibility::HardExcluded { reasons } = &report.candidates[0].eligibility
         else {
             panic!("known legacy display flag must remain hard excluded");
         };
-        assert!(reasons.contains(
-            &HardExclusion::KnownButUnsupportedDisplayFlags { mask: 0x1 }
-        ));
+        assert!(reasons.contains(&HardExclusion::KnownButUnsupportedDisplayFlags { mask: 0x1 }));
     }
 
     #[test]
@@ -1530,8 +1489,7 @@ mod tests {
             report.candidates[1].candidate_identity,
             CandidateIdentity::NotIssuedReadOnlyStep7
         );
-        let CandidateEligibility::LabUnqualified { gaps } =
-            &report.candidates[1].eligibility
+        let CandidateEligibility::LabUnqualified { gaps } = &report.candidates[1].eligibility
         else {
             unreachable!();
         };
@@ -1556,8 +1514,7 @@ mod tests {
             DeviceEnumerationStatus::LimitReached { limit: 32 };
         let inventory = DisplayInventory {
             adapters: vec![disconnected],
-            adapter_enumeration_status:
-                DeviceEnumerationStatus::LimitReached { limit: 32 },
+            adapter_enumeration_status: DeviceEnumerationStatus::LimitReached { limit: 32 },
         };
         let catalog = build_candidate_catalog(&inventory);
         let CandidateEligibility::HardExcluded { reasons } =

@@ -1,0 +1,7 @@
+[workspace]
+members = [
+    "native/display-probe",
+    "native/displaydeck-safety",
+    "src-tauri",
+]
+resolver = "2"

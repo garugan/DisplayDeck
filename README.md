@@ -756,7 +756,7 @@ Windows実機で`cargo fmt --check`、55件のunit test、build、CLI実行が�
 
 ## 初期リリースまでの最短roadmap
 
-Step 1〜8のread-only CLI実装とWindows実機観測は完了しました。これ以上read-only探索Stepを増やしません。現在の実装はCLIだけで、Tauri app、UI、watchdog、worker、WAL、display mutation、installerは未実装です。
+Step 1〜8のread-only CLI実装とWindows実機観測は完了しました。これ以上read-only探索Stepを増やしません。Gate Aは2026-08-24に承認済みで、Stage 1のTauri app、UI、独立watchdog、fake one-shot worker、dual-slot decision journal、operational WAL、deadline、fencingを実装しました。display mutation、actual machine-dataへの書込み、installerと配布は未実装です。
 
 Step 9で作成したCandidate 04の590 vector、hash/index、再現生成、独立static review、D07 No-Go、D08の25件観測は履歴として保持します。schemaを変更しない限り、fixtureの再生成、手動hash再計算、D08追加batch、Fast Startup/hibernate再検証、別G1A bundle作成は行いません。安全性は実装後の実コードと一つのmutation gateで確認します。
 
@@ -771,7 +771,49 @@ Step 9で作成したCandidate 04の590 vector、hash/index、再現生成、独
 
 初期MVPはlocal consoleの単一user・単一active physical display path・解像度/refreshの非永続変更だけです。multi-display、RDP/FUS、scale、HDR/color、DLDSR、virtual display、arm64、MSI、update/repair、広いhardware matrixは完成後のbacklogへ移しました。D07またはactual mutationがNo-Goなら、安全性を下げずread-only appとして完成させます。
 
-次に必要なのは追加検証ではなく、Stage 0 / Gate Aのhuman approvalです。詳細と安全上削らない契約は[`docs/implementation-plan.md`](docs/implementation-plan.md)を正本とします。
+次に必要なのは追加evidenceではなく、次のWindows実機smokeです。詳細と安全上削らない契約は[`docs/implementation-plan.md`](docs/implementation-plan.md)を正本とします。
+
+## Stage 1 Windows実機確認
+
+この確認はread-only表示とfake transactionだけを実行します。Windowsの解像度、refresh rate、配置、registry、実machine-dataは変更しません。D08の追加測定、Candidate 04 fixtureの再生成、G1A資料作成も不要です。
+
+### 1. buildと自動test
+
+Windows PowerShellでDisplayDeckのルートへ移動し、次を上から一度だけ実行します。
+
+```powershell
+git pull
+npm ci
+cargo fmt --all -- --check
+cargo test --workspace --all-targets
+npm run build
+cargo build -p displaydeck-safety --bin displaydeck-actor --release
+npm run tauri build -- --no-bundle
+```
+
+途中で終了コードが非0になった場合は、そこで停止して出力を共有してください。すべて成功したら、次の2ファイルが同じdirectoryにできます。
+
+```text
+target\release\displaydeck-app.exe
+target\release\displaydeck-actor.exe
+```
+
+### 2. read-only appの確認
+
+同じPowerShellでappを起動します。
+
+```powershell
+.\target\release\displaydeck-app.exe
+```
+
+次の4点を一度確認します。
+
+1. 現在のdisplay、mode、候補または変更不能理由が表示される。
+2. 画面上部に「読み取り専用」と表示され、`Apply（未許可）`が押せない。
+3. `15秒の安全動作をシミュレート`を一度押し、`戻す`または`この状態を維持`でfake transactionが終了する。
+4. Windowsの解像度、refresh rate、配置が変わっていない。
+
+frontend終了時のfake rollback、timeout、WAL/journal破損、stale worker、deadline/fence不一致は上の自動testで確認するため、手動で繰り返しません。fake transactionの一時fileは`$env:TEMP\DisplayDeck-Stage1`だけに作成されます。
 
 ## Windows以外で実行した場合
 

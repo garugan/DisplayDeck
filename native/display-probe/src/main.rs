@@ -1,17 +1,7 @@
 #![deny(unsafe_op_in_unsafe_fn)]
 
 #[cfg(target_os = "windows")]
-mod candidate;
-#[cfg(target_os = "windows")]
-mod ccd;
-#[cfg(target_os = "windows")]
-mod display;
-#[cfg(target_os = "windows")]
-mod mapping;
-#[cfg(target_os = "windows")]
-mod observation;
-#[cfg(target_os = "windows")]
-mod qualification;
+use display_probe::{candidate, ccd, display, mapping, observation, qualification};
 
 #[cfg(target_os = "windows")]
 const TARGET_NAME_FLAG_FRIENDLY_NAME_FROM_EDID: u32 = 1 << 0;
@@ -39,8 +29,7 @@ fn main() {
         "  AdapterEnumerationStatus",
         inventory.adapter_enumeration_status,
     );
-    let mut remaining_available_mode_records =
-        MAX_PRINTED_AVAILABLE_MODE_RECORDS;
+    let mut remaining_available_mode_records = MAX_PRINTED_AVAILABLE_MODE_RECORDS;
     if adapters.is_empty() {
         println!("No display adapters found.");
     } else {
@@ -73,11 +62,7 @@ fn main() {
     }
 
     println!();
-    let mapping_capture = print_cross_map(
-        &ccd_query,
-        verification_snapshot.as_ref(),
-        &inventory,
-    );
+    let mapping_capture = print_cross_map(&ccd_query, verification_snapshot.as_ref(), &inventory);
 
     println!();
     let observation_capture = print_current_observations(
@@ -92,8 +77,7 @@ fn main() {
     print_candidate_catalog(&candidate_catalog);
 
     println!();
-    let gdi_environment_markers =
-        qualification::collect_gdi_environment_markers(&inventory);
+    let gdi_environment_markers = qualification::collect_gdi_environment_markers(&inventory);
     let qualification = qualification::build_read_only_qualification_with_markers(
         ccd_snapshot,
         &mapping_capture,
@@ -247,9 +231,7 @@ fn print_cross_map(
             );
             print_empty_mapping_summary(false);
             return qualification::MappingCapture::Unavailable(
-                qualification::MappingCaptureFailure::InitialCcdQueryFailed(
-                    error.failure_class(),
-                ),
+                qualification::MappingCaptureFailure::InitialCcdQueryFailed(error.failure_class()),
             );
         }
     };
@@ -484,14 +466,8 @@ fn print_current_observations(
                     "    CcdTargetVSync: {}",
                     format_optional_rational(path.ccd_target_vsync)
                 );
-                println!(
-                    "    GdiVsCcdPathRefresh: {}",
-                    path.gdi_vs_ccd_path_refresh
-                );
-                println!(
-                    "    GdiVsCcdTargetVSync: {}",
-                    path.gdi_vs_ccd_target_vsync
-                );
+                println!("    GdiVsCcdPathRefresh: {}", path.gdi_vs_ccd_path_refresh);
+                println!("    GdiVsCcdTargetVSync: {}", path.gdi_vs_ccd_target_vsync);
                 println!(
                     "    CcdPathVsTargetVSync: {}",
                     path.ccd_path_vs_target_vsync
@@ -511,10 +487,7 @@ fn print_current_observations(
             "  Summary: ExactPaths={} DistinctPaths={} MismatchPaths={} ",
             "UnavailablePaths={} Stale=false"
         ),
-        report.exact_paths,
-        report.distinct_paths,
-        report.mismatch_paths,
-        report.unavailable_paths
+        report.exact_paths, report.distinct_paths, report.mismatch_paths, report.unavailable_paths
     );
 
     qualification::ObservationCapture::SampledStable(report)
@@ -570,7 +543,10 @@ fn format_rational(value: ccd::Rational) -> String {
     }
 
     let decimal = f64::from(value.numerator) / f64::from(value.denominator);
-    format!("{}/{} ({decimal:.6} Hz)", value.numerator, value.denominator)
+    format!(
+        "{}/{} ({decimal:.6} Hz)",
+        value.numerator, value.denominator
+    )
 }
 
 #[cfg(target_os = "windows")]
@@ -639,10 +615,7 @@ fn format_optional_bool(value: Option<bool>) -> &'static str {
 }
 
 #[cfg(target_os = "windows")]
-fn print_device_enumeration_status(
-    label: &str,
-    status: display::DeviceEnumerationStatus,
-) {
+fn print_device_enumeration_status(label: &str, status: display::DeviceEnumerationStatus) {
     match status {
         display::DeviceEnumerationStatus::Complete => println!("{label}: Complete"),
         display::DeviceEnumerationStatus::LimitReached { limit } => {
@@ -653,11 +626,9 @@ fn print_device_enumeration_status(
 
 #[cfg(target_os = "windows")]
 fn display_inventory_is_complete(inventory: &display::DisplayInventory) -> bool {
-    inventory.adapter_enumeration_status
-        == display::DeviceEnumerationStatus::Complete
+    inventory.adapter_enumeration_status == display::DeviceEnumerationStatus::Complete
         && inventory.adapters.iter().all(|adapter| {
-            adapter.monitor_enumeration_status
-                == display::DeviceEnumerationStatus::Complete
+            adapter.monitor_enumeration_status == display::DeviceEnumerationStatus::Complete
         })
 }
 
@@ -720,9 +691,7 @@ fn print_available_modes(
             println!("{indent}AvailableModesEnumeration: empty or unavailable");
         }
         display::ModeEnumerationStatus::LimitReached { limit } => {
-            println!(
-                "{indent}AvailableModesEnumeration: Incomplete (limit {limit} reached)"
-            );
+            println!("{indent}AvailableModesEnumeration: Incomplete (limit {limit} reached)");
         }
     }
 
@@ -781,10 +750,7 @@ fn print_candidate_catalog(catalog: &candidate::CandidateCatalog) {
 
     for adapter in &catalog.adapters {
         println!("  Adapter {}", adapter.adapter_index);
-        println!(
-            "    DeviceName: {}",
-            escape_log_text(&adapter.device_name)
-        );
+        println!("    DeviceName: {}", escape_log_text(&adapter.device_name));
         print_device_enumeration_status(
             "    MonitorEnumerationStatus",
             adapter.monitor_enumeration_status,
@@ -797,9 +763,7 @@ fn print_candidate_catalog(catalog: &candidate::CandidateCatalog) {
                 println!("    EnumerationStatus: EmptyOrUnavailable");
             }
             display::ModeEnumerationStatus::LimitReached { limit } => {
-                println!(
-                    "    EnumerationStatus: Incomplete (limit {limit} reached)"
-                );
+                println!("    EnumerationStatus: Incomplete (limit {limit} reached)");
             }
         }
         println!("    CurrentTupleStatus: {}", adapter.current_tuple_status);
@@ -878,10 +842,7 @@ fn print_candidate_catalog(catalog: &candidate::CandidateCatalog) {
                 "      AdvancedColorEvidence: {}",
                 mode.advanced_color_evidence
             );
-            println!(
-                "      ExpectedObservation: {}",
-                mode.expected_observation
-            );
+            println!("      ExpectedObservation: {}", mode.expected_observation);
             println!("      Eligibility: {}", mode.eligibility);
             println!("      SelectionToken: NotIssued (read-only Step 7)");
         }
@@ -1032,20 +993,14 @@ fn print_hard_exclusion_histogram(histogram: &qualification::HardExclusionHistog
             "CurrentChangedDuringCapture",
             histogram.current_changed_during_capture,
         ),
-        (
-            "CurrentTupleIncomplete",
-            histogram.current_tuple_incomplete,
-        ),
+        ("CurrentTupleIncomplete", histogram.current_tuple_incomplete),
         ("CurrentNotListed", histogram.current_not_listed),
         (
             "CurrentExactRecordAmbiguous",
             histogram.current_exact_record_ambiguous,
         ),
         ("ExactTupleDuplicate", histogram.exact_tuple_duplicate),
-        (
-            "DriverDefaultFrequency",
-            histogram.driver_default_frequency,
-        ),
+        ("DriverDefaultFrequency", histogram.driver_default_frequency),
         (
             "CurrentDriverDefaultFrequency",
             histogram.current_driver_default_frequency,
@@ -1221,10 +1176,7 @@ fn print_device_info(indent: &str, info: &display::DisplayDeviceInfo) {
     println!("{indent}DeviceID: {}", escape_log_text(&info.device_id));
     println!("{indent}DeviceKey: {}", escape_log_text(&info.device_key));
     println!("{indent}Primary: {}", info.is_primary);
-    println!(
-        "{indent}AttachedToDesktop: {}",
-        info.is_attached_to_desktop
-    );
+    println!("{indent}AttachedToDesktop: {}", info.is_attached_to_desktop);
     println!("{indent}StateFlagsRaw: 0x{:08X}", info.state_flags_raw);
     println!(
         "{indent}MirroringDriverMarker: {}",
@@ -1251,8 +1203,6 @@ fn print_monitor_interface_path(indent: &str, path: &display::MonitorInterfacePa
 
 #[cfg(not(target_os = "windows"))]
 fn main() {
-    eprintln!(
-        "display-probe is Windows-only. Build and run it on Windows 10 or Windows 11."
-    );
+    eprintln!("display-probe is Windows-only. Build and run it on Windows 10 or Windows 11.");
     std::process::exit(1);
 }

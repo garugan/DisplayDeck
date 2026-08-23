@@ -10,8 +10,7 @@ use windows::Win32::{
         DISPLAYCONFIG_TARGET_DEVICE_NAME, QDC_ONLY_ACTIVE_PATHS,
     },
     Foundation::{
-        ERROR_ACCESS_DENIED, ERROR_INSUFFICIENT_BUFFER, ERROR_NOT_SUPPORTED, ERROR_SUCCESS,
-        LUID,
+        ERROR_ACCESS_DENIED, ERROR_INSUFFICIENT_BUFFER, ERROR_NOT_SUPPORTED, ERROR_SUCCESS, LUID,
     },
     Graphics::Gdi::{
         DISPLAYCONFIG_PATH_MODE_IDX_INVALID, DISPLAYCONFIG_PATH_SUPPORT_VIRTUAL_MODE,
@@ -181,9 +180,7 @@ impl CcdQueryError {
             | Self::ModeIndexOutOfRange { .. }
             | Self::ModeTypeMismatch { .. }
             | Self::ModeIdentityMismatch { .. }
-            | Self::DeviceInfoHeaderMismatch { .. } => {
-                CcdQueryFailureClass::InvalidNativeEvidence
-            }
+            | Self::DeviceInfoHeaderMismatch { .. } => CcdQueryFailureClass::InvalidNativeEvidence,
         }
     }
 }
@@ -275,10 +272,7 @@ pub fn has_same_mapping_evidence(left: &CcdSnapshot, right: &CcdSnapshot) -> boo
     snapshots_have_same_path_multiset(left, right, path_mapping_evidence_equal)
 }
 
-pub fn has_same_current_observation_evidence(
-    left: &CcdSnapshot,
-    right: &CcdSnapshot,
-) -> bool {
+pub fn has_same_current_observation_evidence(left: &CcdSnapshot, right: &CcdSnapshot) -> bool {
     snapshots_have_same_path_multiset(left, right, path_current_observation_evidence_equal)
 }
 
@@ -293,13 +287,14 @@ fn snapshots_have_same_path_multiset(
 
     let mut matched = vec![false; right.paths.len()];
     for left_path in &left.paths {
-        let Some((right_index, _)) = right
-            .paths
-            .iter()
-            .enumerate()
-            .find(|(right_index, right_path)| {
-                !matched[*right_index] && paths_equal(left_path, right_path)
-            })
+        let Some((right_index, _)) =
+            right
+                .paths
+                .iter()
+                .enumerate()
+                .find(|(right_index, right_path)| {
+                    !matched[*right_index] && paths_equal(left_path, right_path)
+                })
         else {
             return false;
         };
@@ -354,11 +349,7 @@ fn query_raw_active_config(
         // duration of the call. QDC_ONLY_ACTIVE_PATHS is a documented read-only
         // query flag, and the function retains neither pointer.
         let size_result = unsafe {
-            GetDisplayConfigBufferSizes(
-                QDC_ONLY_ACTIVE_PATHS,
-                &mut path_count,
-                &mut mode_count,
-            )
+            GetDisplayConfigBufferSizes(QDC_ONLY_ACTIVE_PATHS, &mut path_count, &mut mode_count)
         };
 
         if size_result != ERROR_SUCCESS {
@@ -425,12 +416,8 @@ fn query_raw_active_config(
             return Err(CcdQueryError::ReturnedCountExceededBuffer);
         }
 
-        paths.truncate(
-            usize::try_from(path_count).expect("u32 path count must fit in usize"),
-        );
-        modes.truncate(
-            usize::try_from(mode_count).expect("u32 mode count must fit in usize"),
-        );
+        paths.truncate(usize::try_from(path_count).expect("u32 path count must fit in usize"));
+        modes.truncate(usize::try_from(mode_count).expect("u32 mode count must fit in usize"));
         return Ok((paths, modes));
     }
 
@@ -528,10 +515,7 @@ fn convert_path(
     })
 }
 
-fn validate_legacy_path_flags(
-    path_index: usize,
-    flags: u32,
-) -> Result<(), CcdQueryError> {
+fn validate_legacy_path_flags(path_index: usize, flags: u32) -> Result<(), CcdQueryError> {
     let unknown_path_flags = flags & !DISPLAYCONFIG_PATH_VALID_FLAGS;
     if unknown_path_flags != 0 {
         return Err(CcdQueryError::UnknownPathFlags {
@@ -883,9 +867,7 @@ fn wide_array_to_string(value: &[u16]) -> String {
 }
 
 fn wide_array_to_valid_nonempty_string(value: &[u16]) -> Option<ValidatedWideString> {
-    let end = value
-        .iter()
-        .position(|code_unit| *code_unit == 0)?;
+    let end = value.iter().position(|code_unit| *code_unit == 0)?;
 
     if end == 0 {
         return None;
@@ -967,8 +949,7 @@ mod tests {
             CcdQueryFailureClass::TopologyRace
         );
         assert_eq!(
-            CcdQueryError::VirtualModeLayoutUnqualified { path_index: 0 }
-                .failure_class(),
+            CcdQueryError::VirtualModeLayoutUnqualified { path_index: 0 }.failure_class(),
             CcdQueryFailureClass::UnsupportedNativeEvidence
         );
         assert_eq!(
