@@ -828,6 +828,41 @@ frontend終了時のfake rollback、timeout、WAL/journal破損、stale worker�
 
 以上によりStage 1は完了です。`com.displaydeck.app`の末尾に関するTauri warningはWindows buildを失敗させておらず、Gate B前の修正条件にはしません。
 
+## Gate B準備（未承認・read-only）
+
+Stage 2とdisplay mutationはまだ未承認です。Gate Bではexact Windows / GPU driver / monitor / connection / session cellと、一つのtemporary transitionだけを一括承認します。現環境のrecommended candidateは、primaryの`MSI MAG342CQ`を唯一のactive physical display pathにした状態での`3440x1440 / 144 Hz → 60 Hz`です。これは承認候補であり、この時点ではmonitor構成や設定を変更しません。
+
+不足しているexact cell情報を一度だけ取得します。Windows PowerShellでDisplayDeck rootから実行し、出力をそのまま共有します。
+
+```powershell
+$ErrorActionPreference = 'Stop'
+
+Get-CimInstance Win32_OperatingSystem |
+    Format-List Caption, Version, BuildNumber, OSArchitecture
+
+Get-CimInstance Win32_VideoController |
+    Format-List Name, DriverVersion, DriverDate, PNPDeviceID
+
+quser.exe
+if ($LASTEXITCODE -ne 0) { throw "session query failed: $LASTEXITCODE" }
+
+$probe = cargo run --quiet -p display-probe 2>&1
+if ($LASTEXITCODE -ne 0) {
+    $probe
+    throw "display-probe failed: $LASTEXITCODE"
+}
+$probe | Select-String 'ActivePaths:|SourceGdiDeviceName:|TargetFriendlyName:|TargetDevicePath:|TargetConnectorInstance:|OutputTechnology:|CurrentResolution:|CurrentRefreshRateHz:'
+
+$hdr = (Read-Host 'MSI MAG342CQのHDR状態を OFF / ON / UNKNOWN で入力').Trim().ToUpperInvariant()
+if ($hdr -notin @('OFF', 'ON', 'UNKNOWN')) { throw 'HDR状態の入力が不正です' }
+[PSCustomObject]@{
+    Session = $env:SESSIONNAME
+    MsiHdr  = $hdr
+} | Format-List
+```
+
+この取得ではWindows設定を変更しません。出力から一つのGate B承認文を作り、人間ownerの明示承認後にだけStage 2実装を開始します。actual mutation直前には、承認されたmonitor以外を人間operatorが無効化または切断し、`ActivePaths: 1`をread-onlyで再確認します。追加D08 batch、fixture再生成、別G1A資料は作りません。
+
 ## Windows以外で実行した場合
 
 Windows以外ではWindows APIをcompile対象にせず、次のメッセージを表示して終了します。
