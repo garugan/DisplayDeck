@@ -1092,7 +1092,11 @@ if ($pre.result -ne "ACCEPTANCE_NOT_AUTHORIZED" -or $post.result -ne "ACCEPTANCE
 
 2026-08-22の実機結果はhibernate前後ともcapture/validator/集計が5/5で、BootTime、diagnostic BootId、Version/Buildは不変でした。hibernate前の最大値はtick span=`63 ms`、UTC span=`53.499 ms`、predicted-boot spread=`12.788 ms`、復帰後は`63 ms`、`52.283 ms`、`12.335 ms`でした。cross-hibernate intervalはtick=`15282 ms`、UTC=`15286.607 ms`、差=`4.607 ms`です。これは一つの実機cellのread-only observationであり、production thresholdやsame-boot acceptance authorityではありません。
 
-##### 高速スタートアップ（Fast Startup）実機確認（次に実行する手順）
+##### 高速スタートアップ（Fast Startup）実機確認
+
+**2026-08-24の実機結果**：Windowsの「高速スタートアップを有効にする（推奨）」はチェックされていませんでした。このため、高速スタートアップを有効にした状態を前提とする手順2〜7は実行せず、設定も変更していません。記録上は`FAST_STARTUP_DISABLED_OBSERVED / FAST_STARTUP_ENABLED_CELL_NOT_TESTED`とします。これは高速スタートアップ有効環境の合格または不合格を示す結果ではなく、同環境をまだ検証していないことを示します。既に完了したactive、sleep/resume、restart、hibernateの25件のread-only evidenceは、この結果によって無効になりません。
+
+高速スタートアップ有効環境は、別の実機evidenceと人間による承認が揃うまでsupport対象として認定しません。以下は、将来その条件が揃った場合に使う再検証手順です。
 
 この工程では、高速スタートアップが有効なWindows 10を通常の手順でシャットダウンし、電源を入れ直した前後のD08データを比較します。高速スタートアップの設定自体は変更しません。
 
@@ -1317,7 +1321,7 @@ foreach ($item in $batches) {
 
    `%TEMP%`内のJSONファイルそのもの、ユーザー名を含む保存先、BootIdのハッシュ値はGitへ追加しません。最後に、実行前後でディスプレイの解像度、リフレッシュレート、配置が変わっていないことをWindowsの「設定」→「システム」→「ディスプレイ」で目視確認します。
 
-今回の限定authorizationは、full-byte fixture、expected SHA-256、semantic manifest、artifact index、aggregate hashの生成・検証、D07 controlled filesystem/DACL evidence、D08 read-only Windows evidence、formal G1A evidence bundleの作成だけです。Phase 2A product/runtime code、Tauri/watchdog/worker統合、runtime serializer/WAL file、fault harness、display mutationは引き続き未許可です。D07は`DIRECTORY_ANCHOR_UNPROVEN / NO_GO_RECORDED`、D08は`READ_ONLY_AUTHORIZED / ACTIVE_SLEEP_RESTART_HIBERNATE_BATCHES_25_OF_25_IDENTITY_METRICS_CONSISTENT / CROSS_SLEEP_HIBERNATE_TICK_UTC_ADVANCE_CONSISTENT / RESTART_BOOT_BOUNDARY_CONFIRMED / HIBERNATE_SAME_BOOT_OBSERVED / TOLERANCE_EVIDENCE_PENDING`、G1Aはtemplate/validatorのみでformal result evidenceはpendingです。
+今回の限定authorizationは、full-byte fixture、expected SHA-256、semantic manifest、artifact index、aggregate hashの生成・検証、D07 controlled filesystem/DACL evidence、D08 read-only Windows evidence、formal G1A evidence bundleの作成だけです。Phase 2A product/runtime code、Tauri/watchdog/worker統合、runtime serializer/WAL file、fault harness、display mutationは引き続き未許可です。D07は`DIRECTORY_ANCHOR_UNPROVEN / NO_GO_RECORDED`、D08は`READ_ONLY_AUTHORIZED / ACTIVE_SLEEP_RESTART_HIBERNATE_BATCHES_25_OF_25_IDENTITY_METRICS_CONSISTENT / CROSS_SLEEP_HIBERNATE_TICK_UTC_ADVANCE_CONSISTENT / RESTART_BOOT_BOUNDARY_CONFIRMED / HIBERNATE_SAME_BOOT_OBSERVED / FAST_STARTUP_DISABLED_OBSERVED / FAST_STARTUP_ENABLED_CELL_NOT_TESTED / TOLERANCE_EVIDENCE_PENDING`、G1Aはtemplate/validatorのみでformal result evidenceはpendingです。
 
 | Decision | 人間が決める内容 | 現在のrecommended candidate | Status |
 | --- | --- | --- | --- |
@@ -1328,7 +1332,7 @@ foreach ($item in $batches) {
 | `DD-FR-002-D05` | machine recordのruntime writer | SYSTEM creator/maintenance writerとinstaller-designated single runtime owner SIDに限定 | `POLICY_APPROVED / SPEC_CANDIDATE / BYTE_ARTIFACT_GENERATED / INDEPENDENT_STATIC_REVIEW_CLEAN / HUMAN_FREEZE_APPROVAL_PENDING` |
 | `DD-FR-002-D06` | fresh MachineActor provision | separate installer provision recordでcreate前intentとactual file-ID checkpointをdurable化し、最初のvalid maintenance intent / activeを経てowner-bound ordinary cleanへ進む | `POLICY_APPROVED / SPEC_CANDIDATE / BYTE_ARTIFACT_GENERATED / INDEPENDENT_STATIC_REVIEW_CLEAN / HUMAN_FREEZE_APPROVAL_PENDING` |
 | `DD-FR-002-D07` | directory anchor / reparse proof | documented handle/APIでrace-resistantに証明できたcellだけadmit。現時点は未証明のためNo-Go | `POLICY_APPROVED / SPEC_CANDIDATE / DIRECTORY_ANCHOR_UNPROVEN / NO_GO_RECORDED / HUMAN_FREEZE_APPROVAL_PENDING` |
-| `DD-FR-002-D08` | boot identity | stable WMI boot UTC/version/buildだけをhashし、tick/UTC cross-checkは別acceptance evidenceとして実機でtoleranceをfreeze | `POLICY_APPROVED / SPEC_CANDIDATE / READ_ONLY_AUTHORIZED / ACTIVE_SLEEP_RESTART_HIBERNATE_BATCHES_25_OF_25_IDENTITY_METRICS_CONSISTENT / CROSS_SLEEP_HIBERNATE_TICK_UTC_ADVANCE_CONSISTENT / RESTART_BOOT_BOUNDARY_CONFIRMED / HIBERNATE_SAME_BOOT_OBSERVED / TOLERANCE_EVIDENCE_PENDING / HUMAN_FREEZE_APPROVAL_PENDING` |
+| `DD-FR-002-D08` | boot identity | stable WMI boot UTC/version/buildだけをhashし、tick/UTC cross-checkは別acceptance evidenceとして実機でtoleranceをfreeze | `POLICY_APPROVED / SPEC_CANDIDATE / READ_ONLY_AUTHORIZED / ACTIVE_SLEEP_RESTART_HIBERNATE_BATCHES_25_OF_25_IDENTITY_METRICS_CONSISTENT / CROSS_SLEEP_HIBERNATE_TICK_UTC_ADVANCE_CONSISTENT / RESTART_BOOT_BOUNDARY_CONFIRMED / HIBERNATE_SAME_BOOT_OBSERVED / FAST_STARTUP_DISABLED_OBSERVED / FAST_STARTUP_ENABLED_CELL_NOT_TESTED / TOLERANCE_EVIDENCE_PENDING / HUMAN_FREEZE_APPROVAL_PENDING` |
 
 D01〜D08の方針承認と今回の統合freeze-evidence authorizationは、full-byte artifact生成を許可しますが、`FROZEN`、artifact approval、Phase 2A authorizationではありません。CANDIDATE-04のfull-byte生成と独立static reviewは完了しましたが、D07/D08/G1A evidence、Reviewer/Approver、immutable approval referenceが揃うまでcode値やDACL候補の実装正本にしません。D05によりV1のmutation writerはinstaller-bound single runtime ownerだけで、別ownerへの変更はelevated maintenance/rebindを必要とします。
 
