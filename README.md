@@ -1092,24 +1092,24 @@ if ($pre.result -ne "ACCEPTANCE_NOT_AUTHORIZED" -or $post.result -ne "ACCEPTANCE
 
 2026-08-22の実機結果はhibernate前後ともcapture/validator/集計が5/5で、BootTime、diagnostic BootId、Version/Buildは不変でした。hibernate前の最大値はtick span=`63 ms`、UTC span=`53.499 ms`、predicted-boot spread=`12.788 ms`、復帰後は`63 ms`、`52.283 ms`、`12.335 ms`でした。cross-hibernate intervalはtick=`15282 ms`、UTC=`15286.607 ms`、差=`4.607 ms`です。これは一つの実機cellのread-only observationであり、production thresholdやsame-boot acceptance authorityではありません。
 
-##### Fast Startup実機確認（次に実行する手順）
+##### 高速スタートアップ（Fast Startup）実機確認（次に実行する手順）
 
-目的は、Fast Startupが有効なWindows 10で通常の`Shut down`と電源投入を跨いだとき、D08のBootTime / diagnostic BootId / tickがどう観測されるかを記録することです。Microsoftの説明ではFast Startupはkernel sessionをhibernateして通常のshutdown後の起動を高速化し、`Restart`には適用されません。そのため、この手順で`Restart`、`shutdown.exe`、Shiftを押しながらのshutdownは使いません。[Microsoft Learn: Fast Startup](https://learn.microsoft.com/en-us/troubleshoot/windows-client/setup-upgrade-and-drivers/fast-startup-causes-system-hibernation-shutdown-fail)、[Microsoft Support: Shut down](https://support.microsoft.com/en-us/windows/shut-down-turn-off-your-pc-893fd089-c851-71c7-af3e-63e159681b21)
+目的は、高速スタートアップが有効なWindows 10で通常の「シャットダウン」と電源投入を跨いだとき、D08の起動日時、診断用BootId、tickがどう観測されるかを記録することです。Microsoftの説明では、高速スタートアップはカーネルセッションを休止状態として保存して通常のシャットダウン後の起動を高速化し、「再起動」には適用されません。そのため、この手順では「再起動」、`shutdown.exe`、Shiftキーを押しながらのシャットダウンは使いません。[Microsoft Learn: 高速スタートアップ](https://learn.microsoft.com/en-us/troubleshoot/windows-client/setup-upgrade-and-drivers/fast-startup-causes-system-hibernation-shutdown-fail)、[Microsoft Support: PCをシャットダウンする](https://support.microsoft.com/en-us/windows/shut-down-turn-off-your-pc-893fd089-c851-71c7-af3e-63e159681b21)
 
-この手順はFast Startupやhibernate設定を変更しません。helperもshutdownや電源投入を行いません。実行前に作業中のfileを保存してください。
+この手順は高速スタートアップや休止状態の設定を変更しません。補助スクリプトもシャットダウンや電源投入を行いません。実行前に作業中のファイルを保存してください。
 
-1. **Fast Startupが現在有効か目視確認する**
+1. **高速スタートアップが現在有効か目視確認する**
 
-   Control Panel → Hardware and Sound → Power Options → Choose what the power buttons do を開き、Shutdown settingsの`Turn on fast startup (recommended)`がチェック済みか見るだけにします。チェック済みなら画面を閉じます。未チェック、項目なし、状態不明なら停止し、チェック変更、`Change settings that are currently unavailable`、`powercfg`、registry操作は行いません。
+   Windowsの「コントロール パネル」→「ハードウェアとサウンド」→「電源オプション」→「電源ボタンの動作を選択する」を開きます。「シャットダウン設定」にある「高速スタートアップを有効にする（推奨）」がチェック済みか見るだけにします。チェック済みなら画面を閉じます。未チェック、項目なし、状態不明なら停止してください。「現在利用可能ではない設定を変更します」は選択せず、チェック変更、`powercfg`、レジストリ操作も行いません。
 
    DisplayDeck rootのPowerShellで、目視結果を確認してから続行します。
 
 ```powershell
-$fastStartupObserved = Read-Host 'Fast Startupがチェック済みなら ENABLED と入力'
-if ($fastStartupObserved -cne 'ENABLED') { throw 'Fast Startup enabled state was not confirmed; stop without changing settings' }
+$fastStartupObserved = Read-Host '「高速スタートアップを有効にする（推奨）」がチェック済みなら ENABLED と入力'
+if ($fastStartupObserved -cne 'ENABLED') { throw '高速スタートアップの有効状態を確認できません。設定を変更せず停止してください' }
 ```
 
-2. **shutdown前の5件を取得する**
+2. **シャットダウン前の5件を取得する**
 
 ```powershell
 git pull
@@ -1127,11 +1127,11 @@ New-Item -ItemType Directory -Path $preFastStartupBatch -ErrorAction Stop | Out-
 Write-Output "pre-Fast-Startup batch: $preFastStartupBatch"
 ```
 
-期待結果は5件すべての`captured: ...`、`valid: ...`、`valid static vector: ...`です。1件でも失敗したらshutdownへ進みません。
+期待結果は5件すべての`captured: ...`、`valid: ...`、`valid static vector: ...`です。1件でも失敗したらシャットダウンへ進みません。
 
-3. **operatorが通常のshutdownと電源投入を行う**
+3. **実行者が通常のシャットダウンと電源投入を行う**
 
-   PowerShellに表示されたpre-folderを控え、Start → Power → Shut downを選びます。完全に電源が切れた後、電源ボタンで起動します。`Restart`やshutdown commandは使いません。
+   PowerShellに表示された事前取得フォルダーを控えます。Windowsの「スタート」→「電源」→「シャットダウン」を選びます。完全に電源が切れた後、電源ボタンで起動します。「再起動」やシャットダウン用コマンドは使いません。
 
 4. **起動後の5件を取得する**
 
@@ -1159,9 +1159,9 @@ Write-Output "pre-Fast-Startup batch: $preFastStartupBatch"
 Write-Output "post-Fast-Startup batch: $postFastStartupBatch"
 ```
 
-5. **shutdown前後を比較する**
+5. **シャットダウン前後を比較する**
 
-   この比較はsame bootかnew bootかを先に決め打ちしません。BootTime / BootId / tickが全部同じ分類を示す場合だけ結果を残し、混在した場合はfail closedにします。
+   この比較は同一起動か新規起動かを先に決め打ちしません。BootTime / BootId / tickがすべて同じ分類を示す場合だけ結果を残し、混在した場合は安全側で不合格にします。
 
 ```powershell
 $preCapture = Join-Path $preFastStartupBatch "sample-05.json"
@@ -1217,11 +1217,11 @@ if ($classification -eq "KERNEL_SESSION_CONTINUITY_OBSERVED" -and $tickAdvanceMs
 if ($pre.result -ne "ACCEPTANCE_NOT_AUTHORIZED" -or $post.result -ne "ACCEPTANCE_NOT_AUTHORIZED") { throw "Unexpected D08 result" }
 ```
 
-期待するのは、例外が出ず、`Classification`が`KERNEL_SESSION_CONTINUITY_OBSERVED`または`NEW_BOOT_BOUNDARY_OBSERVED`のどちらか一つになることです。この結果だけではFast Startup support、production tolerance、same-boot authorityを承認しません。
+期待するのは、例外が出ず、`Classification`が`KERNEL_SESSION_CONTINUITY_OBSERVED`または`NEW_BOOT_BOUNDARY_OBSERVED`のどちらか一つになることです。この結果だけでは高速スタートアップの対応可否、製品用の許容値、同一起動と判定する権限を承認しません。
 
-6. **shutdown前後の各5件を集計する**
+6. **シャットダウン前後の各5件を集計する**
 
-   次を一度だけ実行します。結果はPowerShell画面へ表示され、fileには自動保存されません。
+   次を一度だけ実行します。結果はPowerShell画面へ表示され、ファイルには自動保存されません。
 
 ```powershell
 $batches = @(
