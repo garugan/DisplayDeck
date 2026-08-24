@@ -1,7 +1,7 @@
 #![deny(unsafe_op_in_unsafe_fn)]
 
 #[cfg(target_os = "windows")]
-use display_probe::{candidate, ccd, display, mapping, observation, qualification};
+use display_probe::{candidate, ccd, display, mapping, mutation, observation, qualification};
 
 #[cfg(target_os = "windows")]
 const TARGET_NAME_FLAG_FRIENDLY_NAME_FROM_EDID: u32 = 1 << 0;
@@ -16,6 +16,24 @@ const MAX_PRINTED_CANDIDATE_GROUP_INDICES: usize = 8_192;
 
 #[cfg(target_os = "windows")]
 fn main() {
+    let arguments = std::env::args().skip(1).collect::<Vec<_>>();
+    if !arguments.is_empty() {
+        match arguments.as_slice() {
+            [argument] if argument == "--gate-b-readiness" => {
+                print_gate_b_readiness();
+                return;
+            }
+            [argument] if argument == "--help" || argument == "-h" => {
+                print_usage();
+                return;
+            }
+            _ => {
+                eprintln!("unknown display-probe argument");
+                print_usage();
+                std::process::exit(64);
+            }
+        }
+    }
     let ccd_query = query_and_print_ccd_snapshot();
     let ccd_snapshot = ccd_query.as_ref().ok();
     println!();
@@ -86,6 +104,33 @@ fn main() {
         gdi_environment_markers,
     );
     print_read_only_qualification(&qualification);
+}
+
+#[cfg(target_os = "windows")]
+fn print_usage() {
+    println!("Usage: display-probe [--gate-b-readiness]");
+}
+
+#[cfg(target_os = "windows")]
+fn print_gate_b_readiness() {
+    let plan = mutation::assess_exact_cell();
+    match plan.active_path_count() {
+        Some(count) => println!("ActivePaths: {count}"),
+        None => println!("ActivePaths: unavailable"),
+    }
+    println!("GateBDisplayCellReadiness: {:?}", plan.readiness);
+    println!("ExactBinding: {}", plan.binding_is_complete());
+    println!(
+        "BaselineRestorePreflightRequired: {}",
+        plan.baseline_restore_preflight_required()
+    );
+    println!("MutationAuthorized: false");
+    for blocker in &plan.blockers {
+        println!("Blocker: {blocker:?}");
+    }
+    if plan.readiness == mutation::ExactCellReadiness::NoGo {
+        std::process::exit(2);
+    }
 }
 
 #[cfg(target_os = "windows")]

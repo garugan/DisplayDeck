@@ -2,7 +2,7 @@
 
 最終更新: 2026-08-24
 
-状態: Ponytailによるロードマップ改訂済み。Gate Aは2026-08-24に承認され、Stage 1のnon-mutating実装、自動test、Windows release buildは完了した。release executableの起動直後終了を調査中で、手動read-only smokeは未完了である。display mutation、actual machine-dataへの書込み、配布は未承認である。
+状態: Ponytailによるロードマップ改訂済み。Gate AとStage 1は完了した。Gate Bは2026-08-24にWindows 10 Home 10.0.19045 x64 / RTX 4070 driver 32.0.16.1088 / MSI MAG342CQ DisplayPort connector 2 / 3440x1440 144→60 Hzの一時変更だけ承認された。現在はD07とexact display cellのread-only事前判定中で、条件成立前のmutation、永続変更、multi-display mutation、配布は不可である。
 
 ## 1. 完成の定義
 
@@ -36,12 +36,12 @@ read-only表示は複数displayでも構わないが、上記MVP条件を外れ�
 | --- | --- | --- |
 | `native/display-probe` | Step 1〜8、55 unit tests、Windows実機read-only観測済み | Rust domain/query実装として再利用する。追加の探索Stepは作らない |
 | Candidate 04 | 590 vector、hash/index、再現生成、独立static review完了 | schemaを変えない限り再生成・再reviewしない。Stage 0で実装baselineとして一括判断する |
-| D07 | directory anchor未証明、No-Go記録済み | non-mutating実装はblockしない。最初のmutation前に実コードと対象volumeで1回Go/No-Go判定する |
+| D07 | handle-relative read-only inspectorを実装 | 対象volumeで1回Go/No-Go判定し、No-Goならmutationを作らずread-only MVPへ進む |
 | D08 | Windows 10一台で25件観測、250 ms / 50 ms候補あり | 追加batchを止める。最初のmutation cellでcurrent bootとrestart境界だけ再確認する |
 | G1A | templateのみ | 独立bundle作成を止め、Stage 0の一括判断へ統合する |
-| Tauri app / UI | 未実装 | Stage 1でread-only製品として作る |
-| watchdog / worker / WAL | 未実装 | Stage 1でfake display backendを使って作る |
-| display mutation | 未実装・未許可 | Stage 2のexact runだけ別承認する |
+| Tauri app / UI | Stage 1実装・Windows smoke完了 | D07 / exact cell判定まではApplyを無効のままにする |
+| watchdog / worker / WAL | fake backendで実装・自動test完了 | 両readinessがGoの場合だけactual backendへ接続する |
+| display mutation | exact Gate B cellだけ条件付き承認済み | D07 / single-path binding成立後のcontrolled run 1件に限定する |
 | installer | 未実装 | Stage 3でNSISだけ作る |
 
 Step 9の事前evidence収集はここで終了する。既存artifactは履歴として保持するが、製品コードを作らずにfixture、hash、template、手動batch、承認資料だけを増やさない。
@@ -206,4 +206,4 @@ G1A、DD-FR-002 freeze、Phase 2A開始、G2A、UI開始、read-only統合開始
 
 ## 8. 次の一手
 
-Windows release executableのread-only表示とfake transactionのsmokeが完了し、Stage 1は閉じた。次はGate Bでexact cellと一つのtemporary transitionが明示承認された場合だけStage 2を開始する。それまでは追加D08測定、fixture再検証、display mutationを行わない。
+Gate Bのexact cellは承認済みである。まずD07を対象volumeで一度判定し、Goの場合だけ他2画面を物理的に切断してread-only exact bindingを判定する。どちらかがNo-GoならOS callを0件のままread-only MVPへ進む。両方がGoなら、追加承認なしで同じopaque bindingをactual watchdog / one-shot workerへ接続し、controlled run用buildを作る。追加D08測定、fixture再検証、別evidence bundleは作らない。

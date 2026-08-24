@@ -756,7 +756,7 @@ Windows実機で`cargo fmt --check`、55件のunit test、build、CLI実行が�
 
 ## 初期リリースまでの最短roadmap
 
-Step 1〜8のread-only CLI実装とWindows実機観測は完了しました。これ以上read-only探索Stepを増やしません。Gate Aは2026-08-24に承認済みで、Stage 1のTauri app、UI、独立watchdog、fake one-shot worker、dual-slot decision journal、operational WAL、deadline、fencingを実装しました。display mutation、actual machine-dataへの書込み、installerと配布は未実装です。
+Step 1〜8のread-only CLI実装とWindows実機観測は完了しました。これ以上read-only探索Stepを増やしません。Gate AとStage 1は完了し、Gate Bは2026-08-24に下記のexact cellだけ承認されました。現在はD07とdisplay cellのread-only事前判定を行う段階で、Applyはまだ無効です。installerと配布は未実装です。
 
 Step 9で作成したCandidate 04の590 vector、hash/index、再現生成、独立static review、D07 No-Go、D08の25件観測は履歴として保持します。schemaを変更しない限り、fixtureの再生成、手動hash再計算、D08追加batch、Fast Startup/hibernate再検証、別G1A bundle作成は行いません。安全性は実装後の実コードと一つのmutation gateで確認します。
 
@@ -764,7 +764,7 @@ Step 9で作成したCandidate 04の590 vector、hash/index、再現生成、独
 | --- | --- | --- |
 | 0 | MVP範囲と実装baselineの一括承認 | Candidate 04、D08 lab candidate、D07 mutation前Go/No-Go、Stage 1のnon-mutating実装を一度に承認 |
 | 1（完了） | read-only Tauri製品 + fake backendの安全core | current/candidate UI、watchdog、one-shot worker、WAL、deadline/fencingをdisplay変更なしで自動test |
-| 2 | 製品構成で一つのcontrolled transition | Keep、manual Revert、timeout、parent loss、worker/watchdog failure、startup recoveryを一つのexact cellで確認 |
+| 2（Gate B承認済み・事前判定中） | 製品構成で一つのcontrolled transition | D07とexact cellがGoの場合だけ、Keep、manual Revert、timeout、parent loss、worker/watchdog failure、startup recoveryを確認 |
 | 3 | MVP仕上げ + NSIS | UI基本品質、support statement、clean install/launch/uninstall、RC safety smoke |
 
 承認はStage 0、exact mutation run、MVP releaseの3回だけです。UI、read-only統合、watchdog prototype、個別fixture、G1A/G2Aを別々の承認にしません。
@@ -809,7 +809,7 @@ target\release\displaydeck-actor.exe
 次の4点を一度確認します。
 
 1. 現在のdisplay、mode、候補または変更不能理由が表示される。
-2. 画面上部に「読み取り専用」と表示され、`Apply（未許可）`が押せない。
+2. 画面上部に「読み取り専用」と表示され、Apply buttonが押せない。
 3. `15秒の安全動作をシミュレート`を一度押し、`戻す`または`この状態を維持`でfake transactionが終了する。
 4. Windowsの解像度、refresh rate、配置が変わっていない。
 
@@ -867,52 +867,53 @@ $roots | ForEach-Object { Get-ChildItem $_ -ErrorAction SilentlyContinue } |
 
 `Exited: false`ならprocessは正常に生存しているため、そのwindowで4項目のsmokeを続行します。`Exited: true`なら出力を共有し、原因がWebView2 Runtime不在、WebView2 data directory、native loader、またはWindows crashのどれかを確定してから最小修正します。
 
-## Gate B準備（未承認・read-only）
+## Gate B（承認済み・read-only事前判定）
 
-Stage 2とdisplay mutationはまだ未承認です。Gate Bではexact Windows / GPU driver / monitor / connection / session cellと、一つのtemporary transitionだけを一括承認します。現環境のrecommended candidateは、primaryの`MSI MAG342CQ`を唯一のactive physical display pathにした状態での`3440x1440 / 144 Hz → 60 Hz`です。これは承認候補であり、この時点ではmonitor構成や設定を変更しません。
+2026-08-24にhuman ownerが次の一つのcellとtemporary transitionだけを承認しました。
 
-不足しているexact cell情報を一度だけ取得します。Windows PowerShellでDisplayDeck rootから実行し、出力をそのまま共有します。
+- Windows 10 Home `10.0.19045` x64
+- NVIDIA GeForce RTX 4070、PNP ID `PCI\VEN_10DE&DEV_2786&SUBSYS_F3021569&REV_A1\4&341CA995&0&0008`、driver `32.0.16.1088`
+- local console、`RemoteSession=False`、単一interactive user
+- `MSI MAG342CQ`、`\\.\DISPLAY1`、external DisplayPort、connector instance `2`、HDR / wide color OFF
+- active physical pathが1本だけの状態で、`3440x1440 / 144 Hz → 3440x1440 / 60 Hz`を一時適用
+- operator `harui`。実行日はactual run時に記録
+
+永続変更、multi-display mutation、別OS / GPU / driver / monitor / connection、配布は承認外です。以下のread-only判定はfileを作成・変更せず、display設定も変更しません。
+
+### 1. D07を先に判定する
+
+Windows PowerShellでDisplayDeck rootから一度実行します。
 
 ```powershell
-$ErrorActionPreference = 'Stop'
-
-Get-CimInstance Win32_OperatingSystem |
-    Format-List Caption, Version, BuildNumber, OSArchitecture
-
-Get-CimInstance Win32_VideoController |
-    Format-List Name, DriverVersion, DriverDate, PNPDeviceID
-
-if (-not ('DisplayDeckSessionProbe' -as [type])) {
-    Add-Type -TypeDefinition @'
-using System.Runtime.InteropServices;
-public static class DisplayDeckSessionProbe {
-    [DllImport("user32.dll")]
-    public static extern int GetSystemMetrics(int index);
-}
-'@
-}
-[PSCustomObject]@{
-    SessionName  = $env:SESSIONNAME
-    SessionId    = [System.Diagnostics.Process]::GetCurrentProcess().SessionId
-    RemoteSession = [DisplayDeckSessionProbe]::GetSystemMetrics(0x1000) -ne 0
-} | Format-List
-
-$probe = cargo run --quiet -p display-probe 2>&1
-if ($LASTEXITCODE -ne 0) {
-    $probe
-    throw "display-probe failed: $LASTEXITCODE"
-}
-$probe | Select-String 'ActivePaths:|SourceGdiDeviceName:|TargetFriendlyName:|TargetDevicePath:|TargetConnectorInstance:|OutputTechnology:|CurrentResolution:|CurrentRefreshRateHz:'
-
-$hdr = (Read-Host 'MSI MAG342CQのHDR状態を OFF / ON / UNKNOWN で入力').Trim().ToUpperInvariant()
-if ($hdr -notin @('OFF', 'ON', 'UNKNOWN')) { throw 'HDR状態の入力が不正です' }
-[PSCustomObject]@{
-    Session = $env:SESSIONNAME
-    MsiHdr  = $hdr
-} | Format-List
+git pull --ff-only
+cargo run --quiet -p displaydeck-safety --bin displaydeck-actor -- --d07-inspect
 ```
 
-Windows 10 Homeに`quser.exe`がない場合も上のnative read-only checkを使用します。この取得ではWindows設定を変更しません。出力から一つのGate B承認文を作り、人間ownerの明示承認後にだけStage 2実装を開始します。actual mutation直前には、承認されたmonitor以外を人間operatorが無効化または切断し、`ActivePaths: 1`をread-onlyで再確認します。追加D08 batch、fixture再生成、別G1A資料は作りません。
+`D07: NO_GO:<reason>`と終了コード1が出た場合は正常なfail-closed判定です。そこで終了し、monitorを切断しません。`D07: GO`が出た場合だけ次へ進みます。どちらの場合も`MutationAuthorized: false`のままです。
+
+### 2. D07がGoの場合だけexact display cellを判定する
+
+1. `TW215FHDNS`と`BENQ E2220HD`のdisplay cableを物理的に外し、`MSI MAG342CQ`だけを接続状態にします。Windowsの「ディスプレイ設定」で無効化する操作は使いません。
+2. MSI側が`3440 × 1440 / 144 Hz`、HDRがオフであることを目視確認します。
+3. 同じPowerShellで実行します。
+
+```powershell
+cargo run --quiet -p display-probe -- --gate-b-readiness
+```
+
+合格時の末尾は次です。
+
+```text
+ActivePaths: 1
+GateBDisplayCellReadiness: Go
+ExactBinding: true
+BaselineRestorePreflightRequired: true
+MutationAuthorized: false
+```
+
+`NoGo`、`Blocker:`、終了コード2のいずれかが出た場合はdisplayを変更せず終了し、外した2台を接続し直します。`Go`でもこのコマンド自体はmutationを許可せず、まだWindows設定を変更しません。追加D08 batch、fixture再生成、別G1A資料は不要です。
+
+両方がGoになったログを受領した後は、追加承認を挟まず、actual watchdog / worker / WALへ同じopaque bindingを接続してcontrolled run用buildをpushします。actual runの直前にもこのexact cellを再評価し、不一致ならOS callを0件のままNo-Goにします。
 
 ## Windows以外で実行した場合
 

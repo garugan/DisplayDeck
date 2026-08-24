@@ -8,8 +8,9 @@ use std::{
 };
 
 use displaydeck_safety::{
-    current_tick_ms, random_id, ActorStatus, SafetyEngine, SafetyStatus, WatchdogCommand,
-    WatchdogStart, WorkerGo, WorkerGrant, WorkerHello, WorkerIdentity, WorkerResult, WorkerRole,
+    current_tick_ms, inspect_machine_actor_storage, random_id, ActorStatus, D07StorageVerdict,
+    SafetyEngine, SafetyStatus, WatchdogCommand, WatchdogStart, WorkerGo, WorkerGrant, WorkerHello,
+    WorkerIdentity, WorkerResult, WorkerRole,
 };
 use sha2::{Digest, Sha256};
 
@@ -22,15 +23,39 @@ use windows::Win32::{
 };
 
 fn main() {
-    let result = if std::env::args().nth(1).as_deref() == Some("--worker") {
-        run_worker()
-    } else {
-        run_watchdog()
+    let arguments = std::env::args().skip(1).collect::<Vec<_>>();
+    let result = match arguments.as_slice() {
+        [] => run_watchdog(),
+        [argument] if argument == "--worker" => run_worker(),
+        [argument] if argument == "--d07-inspect" => return print_d07_verdict(),
+        [argument] if argument == "--help" || argument == "-h" => {
+            println!("Usage: displaydeck-actor [--worker | --d07-inspect]");
+            return;
+        }
+        _ => {
+            eprintln!("unknown displaydeck-actor argument");
+            std::process::exit(64);
+        }
     };
     if let Err(error) = result {
         eprintln!("displaydeck-actor: {error}");
         std::process::exit(1);
     }
+}
+
+fn print_d07_verdict() {
+    let failure = match inspect_machine_actor_storage() {
+        D07StorageVerdict::Go(anchor) if anchor.revalidate_before_actor_write() => {
+            println!("D07: GO");
+            println!("MutationAuthorized: false");
+            return;
+        }
+        D07StorageVerdict::Go(_) => "DaclUnproven".to_string(),
+        D07StorageVerdict::NoGo(reason) => format!("{reason:?}"),
+    };
+    println!("D07: NO_GO:{failure}");
+    println!("MutationAuthorized: false");
+    std::process::exit(1);
 }
 
 fn run_worker() -> Result<(), String> {

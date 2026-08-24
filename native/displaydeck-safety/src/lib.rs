@@ -2,6 +2,7 @@
 
 mod engine;
 mod journal;
+mod machine_storage;
 mod protocol;
 mod wal;
 
@@ -11,6 +12,9 @@ pub use engine::{
     TerminalDecision, WorkerGrant,
 };
 pub use journal::{Decision, DecisionJournal, DecisionRecord, JournalClassification};
+pub use machine_storage::{
+    inspect_machine_actor_storage, D07Anchor, D07StorageFailure, D07StorageVerdict,
+};
 pub use protocol::{
     ActorStatus, WatchdogCommand, WatchdogStart, WorkerGo, WorkerHello, WorkerIdentity,
     WorkerResult, WorkerRole,

@@ -78,7 +78,7 @@ export default function App() {
     <main>
       <header className="topbar">
         <div>
-          <p className="eyebrow">DISPLAYDECK / STAGE 1</p>
+          <p className="eyebrow">DISPLAYDECK / GATE B PREPARATION</p>
           <h1>ディスプレイの状態</h1>
         </div>
         <span className="readonly">読み取り専用</span>
@@ -86,14 +86,14 @@ export default function App() {
 
       <section className="notice" aria-live="polite">
         <strong>Windowsの設定は変更しません。</strong>
-        <span>ApplyはGate Bまで無効です。安全動作の確認にはfake workerを使います。</span>
+        <span>Gate B承認済み。D07とexact cellの事前判定が揃うまでApplyは無効です。</span>
       </section>
 
       {error && <p className="error" role="alert">{error}</p>}
 
       <section className="actions" aria-label="操作">
         <button type="button" onClick={() => void refresh()} disabled={busy}>再読み込み</button>
-        <button type="button" disabled title="Gate B未承認">Apply（未許可）</button>
+        <button type="button" disabled title="D07 / exact cell判定待ち">Apply（事前判定待ち）</button>
         <button
           type="button"
           className="primary"

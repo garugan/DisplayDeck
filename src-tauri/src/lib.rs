@@ -133,7 +133,10 @@ fn begin_display_change(
     ensure_main_window(&window)?;
     validate_schema(request.schema_version)?;
     if !request.simulation {
-        return Err("Gate B is not approved; real display changes are disabled".into());
+        return Err(
+            "D07 and exact-cell readiness are incomplete; real display changes remain disabled"
+                .into(),
+        );
     }
     if !(1_000..=15_000).contains(&request.duration_ms) {
         return Err("simulation duration must be between 1000 and 15000 ms".into());
