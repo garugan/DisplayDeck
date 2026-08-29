@@ -4,6 +4,8 @@
 
 The roadmap was reduced to the three human gates in `docs/implementation-plan.md` on 2026-08-24. Gate A / Stage 0 and the non-mutating Stage 1 are complete. On 2026-08-24 the human owner approved Gate B only for Windows 10 Home 10.0.19045 x64, RTX 4070 driver 32.0.16.1088, local console / non-remote / HDR off, MSI MAG342CQ on `DISPLAY1` external DisplayPort connector 2, and one temporary `3440x1440 / 144 Hz -> 60 Hz` transition. Stage 2 implementation, D07 actual Go/No-Go, exact binding, recovery safety, and one controlled mutation are authorized for that cell. Before the run, the operator `harui` must physically disconnect the other two displays and a read-only query must prove `ActivePaths: 1`; any failed condition is No-Go with zero display mutation. Persistent display changes, multi-display mutation, other support cells, and distribution remain unauthorized.
 
+Whenever the next operator action runs on Windows, first record the exact command and stop/continue conditions in `README.md`, then commit and push that documentation before asking the operator to run it.
+
 Until a human owner explicitly approves the revised design and separately authorizes the relevant phase, agents must not:
 
 - create or modify application source, validation code, fixtures, generated artifacts, or native project files;

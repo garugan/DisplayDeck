@@ -867,7 +867,9 @@ $roots | ForEach-Object { Get-ChildItem $_ -ErrorAction SilentlyContinue } |
 
 `Exited: false`ならprocessは正常に生存しているため、そのwindowで4項目のsmokeを続行します。`Exited: true`なら出力を共有し、原因がWebView2 Runtime不在、WebView2 data directory、native loader、またはWindows crashのどれかを確定してから最小修正します。
 
-## Gate B（承認済み・read-only事前判定）
+## 現在Windowsで次にすること — Gate B read-only事前判定
+
+ここが現在の唯一のWindows作業手順です。上から順に進め、各No-Go条件ではその場で停止します。
 
 2026-08-24にhuman ownerが次の一つのcellとtemporary transitionだけを承認しました。
 
