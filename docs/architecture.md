@@ -2,7 +2,7 @@
 
 最終更新: 2026-08-24
 
-状態: Tauri 2設計。Gate AとStage 1は完了した。Gate Bは2026-08-24にWindows 10 Home 10.0.19045 x64 / RTX 4070 driver 32.0.16.1088 / MSI MAG342CQ external DisplayPort connector 2 / 3440x1440 144→60 Hzの一時変更だけ承認された。現在はD07とexact display cellのread-only事前判定中である。条件成立前のmutation、永続変更、multi-display mutation、配布は不可である。現在の実行順と承認は`docs/implementation-plan.md`のStage 0〜3 / Gate A〜Cだけを使用する。本書に残る旧Phase名は設計履歴と試験領域の参照名であり、追加gateを作らない。
+状態: Tauri 2設計。Gate AとStage 1は完了した。Gate Bのactual D07は2026-08-30に`DirectoryAnchorUnproven`でNo-Goとなり、exact display cell判定とmutationはOS call 0件で終了した。次はread-only MVPのStage 3である。actual machine-dataへの書込み、display mutation、永続変更、multi-display mutation、配布は不可である。現在の実行順と承認は`docs/implementation-plan.md`のStage 0〜3 / Gate A〜Cだけを使用する。本書に残る旧Phase名は設計履歴と試験領域の参照名であり、追加gateを作らない。
 
 ## 1. 推奨アーキテクチャの要約
 

@@ -2,7 +2,7 @@
 
 最終更新: 2026-08-24
 
-状態: Ponytailによるロードマップ改訂済み。Gate AとStage 1は完了した。Gate Bは2026-08-24にWindows 10 Home 10.0.19045 x64 / RTX 4070 driver 32.0.16.1088 / MSI MAG342CQ DisplayPort connector 2 / 3440x1440 144→60 Hzの一時変更だけ承認された。現在はD07とexact display cellのread-only事前判定中で、条件成立前のmutation、永続変更、multi-display mutation、配布は不可である。
+状態: Ponytailによるロードマップ改訂済み。Gate AとStage 1は完了した。Gate Bのactual D07は2026-08-30に`DirectoryAnchorUnproven`でNo-Goとなり、exact display cell判定とmutationはOS call 0件のまま終了した。次はread-only MVPのStage 3であり、display mutation、actual machine-dataへの書込み、永続変更、multi-display mutation、配布は不可である。
 
 ## 1. 完成の定義
 
@@ -30,18 +30,20 @@
 
 read-only表示は複数displayでも構わないが、上記MVP条件を外れた環境ではApplyを出さない。未対応cellを救う追加ロジックは作らない。
 
+今回のactual D07 No-Go後は、上記mutation項目を製品へ接続せず、Stage 1のread-only製品とStage 3の非変更packageをMVP完成範囲とする。
+
 ## 2. 現在地
 
 | 項目 | 状態 | 今後の扱い |
 | --- | --- | --- |
 | `native/display-probe` | Step 1〜8、55 unit tests、Windows実機read-only観測済み | Rust domain/query実装として再利用する。追加の探索Stepは作らない |
 | Candidate 04 | 590 vector、hash/index、再現生成、独立static review完了 | schemaを変えない限り再生成・再reviewしない。Stage 0で実装baselineとして一括判断する |
-| D07 | handle-relative read-only inspectorを実装 | 対象volumeで1回Go/No-Go判定し、No-Goならmutationを作らずread-only MVPへ進む |
-| D08 | Windows 10一台で25件観測、250 ms / 50 ms候補あり | 追加batchを止める。最初のmutation cellでcurrent bootとrestart境界だけ再確認する |
+| D07 | actual結果=`DirectoryAnchorUnproven` / No-Go | 再測定や代替anchorを追加せずread-only MVPへ進む |
+| D08 | Windows 10一台で25件観測、250 ms / 50 ms候補あり | 履歴として保持し、追加batchを行わない |
 | G1A | templateのみ | 独立bundle作成を止め、Stage 0の一括判断へ統合する |
-| Tauri app / UI | Stage 1実装・Windows smoke完了 | D07 / exact cell判定まではApplyを無効のままにする |
-| watchdog / worker / WAL | fake backendで実装・自動test完了 | 両readinessがGoの場合だけactual backendへ接続する |
-| display mutation | exact Gate B cellだけ条件付き承認済み | D07 / single-path binding成立後のcontrolled run 1件に限定する |
+| Tauri app / UI | Stage 1実装・Windows smoke完了 | read-only MVPとしてApplyを無効のまま仕上げる |
+| watchdog / worker / WAL | fake backendで実装・自動test完了 | actual backendへ接続しない |
+| display mutation | D07 No-Goにより終了 | OS call 0件を維持する |
 | installer | 未実装 | Stage 3でNSISだけ作る |
 
 Step 9の事前evidence収集はここで終了する。既存artifactは履歴として保持するが、製品コードを作らずにfixture、hash、template、手動batch、承認資料だけを増やさない。
@@ -135,6 +137,8 @@ KB全件、monitor firmware、port番号、dock情報、役割ごとの別承認
 
 ### Stage 2: 製品構成でcontrolled mutation qualification
 
+結果: 2026-08-30の最初の必須条件D07が`DirectoryAnchorUnproven`でNo-Goとなった。exact display cell判定、monitor切断、actual backend接続、display API callは実行せず、このStageを終了した。
+
 旧Phase 1B、2B、6を一つにする。spikeで成功した処理を別product codeへ再実装しない。最初からStage 1のwatchdog/worker/WALとpackaged appへactual display backendを接続する。
 
 一つのapproved transitionで次を各1回確認する。
@@ -163,7 +167,7 @@ D07を証明できない場合やactual mutationがNo-Goの場合でも、Stage 
 - activeまたはunknown recovery中のuninstall拒否
 - 初期support statementと既知の制限
 
-RCではStage 2と同じcellでKeep、timeout restore、parent-loss restore、startup recovery、clean uninstallを一度ずつ再確認する。installer matrix、MSI比較、update/repair、schema migration、SmartScreen reputationはMVP完成後に必要になった時だけ追加する。
+今回のread-only RCではlaunch、display inventory表示、Apply無効、fake safety transaction、clean uninstallを一度ずつ確認する。display mutation、installer matrix、MSI比較、update/repair、schema migration、SmartScreen reputationは実行しない。
 
 Windows 11対応を製品表示や公開文言で主張する場合だけ、Windows 11のexact cellを一つ追加して同じRC subsetを実行する。検証していないOS/hardwareは自動的にsupport外とする。
 
@@ -206,4 +210,4 @@ G1A、DD-FR-002 freeze、Phase 2A開始、G2A、UI開始、read-only統合開始
 
 ## 8. 次の一手
 
-Gate Bのexact cellは承認済みである。まずD07を対象volumeで一度判定し、Goの場合だけ他2画面を物理的に切断してread-only exact bindingを判定する。どちらかがNo-GoならOS callを0件のままread-only MVPへ進む。両方がGoなら、追加承認なしで同じopaque bindingをactual watchdog / one-shot workerへ接続し、controlled run用buildを作る。追加D08測定、fixture再検証、別evidence bundleは作らない。
+D07 No-GoによりStage 2はOS call 0件で終了した。次はStage 3でread-only UI、diagnostic export、NSIS packageを最小実装する。Windows operator作業はそのbuildをpushし、READMEの「現在Windowsで次にすること」を更新するまで発生しない。追加D08測定、fixture再検証、別evidence bundle、display mutationは行わない。

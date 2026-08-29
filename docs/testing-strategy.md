@@ -2,7 +2,7 @@
 
 最終更新: 2026-08-24
 
-状態: read-only Step 1〜8とnon-mutating Stage 1はWindows実機確認まで完了した。Gate Bは2026-08-24に一つのexact temporary transitionだけ承認された。現在はD07対象volumeとsingle-path exact bindingを各1回read-only判定する段階であり、どちらかがNo-Goならdisplay API callを0件のままread-only MVPへ進む。実行必須範囲は`docs/implementation-plan.md` 5章だけを正本とし、追加D08 batch、schema不変fixture再検証、別bundleを要求しない。
+状態: read-only Step 1〜8とnon-mutating Stage 1はWindows実機確認まで完了した。Gate Bのactual D07は2026-08-30に`DirectoryAnchorUnproven`でNo-Goとなり、single-path exact bindingとdisplay API callを実行せずread-only MVPへ進む。実行必須範囲は`docs/implementation-plan.md` 5章だけを正本とし、追加D08 batch、schema不変fixture再検証、別bundleを要求しない。
 
 ## 1. 最優先目標
 

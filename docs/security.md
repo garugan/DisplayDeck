@@ -1,7 +1,7 @@
 # DisplayDeck セキュリティ設計
 
 最終更新: 2026-08-24
-状態: Gate Aとnon-mutating Stage 1は完了した。Gate Bは2026-08-24に一つのWindows 10 / RTX 4070 / MSI MAG342CQ / 144→60 Hz temporary cellだけ承認された。現在はD07とexact bindingのread-only事前判定中であり、両方のGoと実行時再検証まではmutation authorityを発行しない。永続変更、multi-display mutation、配布は未承認である。
+状態: Gate Aとnon-mutating Stage 1は完了した。Gate Bのactual D07は2026-08-30に`DirectoryAnchorUnproven`でNo-Goとなった。mutation authorityは発行せず、exact binding、actual machine-data write、display mutationを実行しないread-only MVPへ進む。永続変更、multi-display mutation、配布は未承認である。
 
 ## 1. セキュリティ目標
 
