@@ -5,6 +5,7 @@ const COMMANDS: &[&str] = &[
     "confirm_display_change",
     "revert_display_change",
     "get_display_change_status",
+    "export_diagnostics",
 ];
 
 fn main() {

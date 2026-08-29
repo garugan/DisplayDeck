@@ -6,6 +6,7 @@ use std::{
     path::PathBuf,
     process::{Child, ChildStdin, Command, Stdio},
     sync::Mutex,
+    time::{SystemTime, UNIX_EPOCH},
 };
 
 use display_probe::app_snapshot::AppDisplaySnapshot;
@@ -99,12 +100,57 @@ struct ChangeStatusResponse {
     message: String,
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DiagnosticExportResponse {
+    schema_version: u16,
+    path: String,
+    bytes: usize,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DiagnosticDocument {
+    schema_version: u16,
+    product_mode: &'static str,
+    generated_unix_ms: u64,
+    mutation_allowed: bool,
+    display_snapshot: AppDisplaySnapshot,
+    status: DiagnosticStatus,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DiagnosticStatus {
+    state: &'static str,
+    remaining_ms: Option<u64>,
+    presentation_stage: u8,
+}
+
 #[tauri::command]
 async fn get_display_snapshot(window: WebviewWindow) -> Result<AppDisplaySnapshot, String> {
     ensure_main_window(&window)?;
     tauri::async_runtime::spawn_blocking(display_probe::app_snapshot::capture)
         .await
         .map_err(|error| format!("display snapshot task failed: {error}"))
+}
+
+#[tauri::command]
+async fn export_diagnostics(
+    window: WebviewWindow,
+    state: tauri::State<'_, AppState>,
+) -> Result<DiagnosticExportResponse, String> {
+    ensure_main_window(&window)?;
+    let display_snapshot =
+        tauri::async_runtime::spawn_blocking(display_probe::app_snapshot::capture)
+            .await
+            .map_err(|error| format!("display snapshot task failed: {error}"))?;
+    let status = state
+        .simulation
+        .lock()
+        .map_err(|_| "simulation state lock poisoned".to_string())?
+        .project()?;
+    write_diagnostics(display_snapshot, &status)
 }
 
 #[tauri::command]
@@ -133,10 +179,7 @@ fn begin_display_change(
     ensure_main_window(&window)?;
     validate_schema(request.schema_version)?;
     if !request.simulation {
-        return Err(
-            "D07 and exact-cell readiness are incomplete; real display changes remain disabled"
-                .into(),
-        );
+        return Err("read-only MVP does not implement display changes (D07 No-Go)".into());
     }
     if !(1_000..=15_000).contains(&request.duration_ms) {
         return Err("simulation duration must be between 1000 and 15000 ms".into());
@@ -483,6 +526,46 @@ fn validate_schema(version: u16) -> Result<(), String> {
     Ok(())
 }
 
+fn write_diagnostics(
+    display_snapshot: AppDisplaySnapshot,
+    status: &ChangeStatusResponse,
+) -> Result<DiagnosticExportResponse, String> {
+    let generated_unix_ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|error| format!("read system time: {error}"))?
+        .as_millis()
+        .try_into()
+        .map_err(|_| "system time exceeds diagnostic schema range".to_string())?;
+    let document = DiagnosticDocument {
+        schema_version: 1,
+        product_mode: "READ_ONLY",
+        generated_unix_ms,
+        mutation_allowed: false,
+        display_snapshot,
+        status: DiagnosticStatus {
+            state: status.state,
+            remaining_ms: status.remaining_ms,
+            presentation_stage: status.presentation_stage,
+        },
+    };
+    let bytes = serde_json::to_vec_pretty(&document)
+        .map_err(|error| format!("serialize diagnostics: {error}"))?;
+    let directory = std::env::temp_dir().join("DisplayDeck").join("diagnostics");
+    fs::create_dir_all(&directory)
+        .map_err(|error| format!("create diagnostics directory: {error}"))?;
+    let nonce = random_id()?;
+    let path = directory.join(format!(
+        "displaydeck-diagnostics-{generated_unix_ms}-{}.json",
+        encode_hex(&nonce)
+    ));
+    fs::write(&path, &bytes).map_err(|error| format!("write diagnostics: {error}"))?;
+    Ok(DiagnosticExportResponse {
+        schema_version: 1,
+        path: path.to_string_lossy().into_owned(),
+        bytes: bytes.len(),
+    })
+}
+
 fn decode_hex_16(value: &str) -> Result<[u8; 16], String> {
     if value.len() != 32 || !value.bytes().all(|byte| byte.is_ascii_hexdigit()) {
         return Err("token must be exactly 32 hexadecimal characters".into());
@@ -519,7 +602,8 @@ pub fn run() -> Result<(), tauri::Error> {
             ack_display_change_presentation,
             confirm_display_change,
             revert_display_change,
-            get_display_change_status
+            get_display_change_status,
+            export_diagnostics
         ])
         .run(tauri::generate_context!())
 }
@@ -542,5 +626,30 @@ mod tests {
         assert!(manager
             .bind_view(StatusMode::OrdinaryResync, [2; 16])
             .is_err());
+    }
+
+    #[test]
+    fn diagnostic_status_omits_authority_tokens() {
+        let status = ChangeStatusResponse {
+            schema_version: 1,
+            view_revision: "secret-view".into(),
+            mutation_allowed: false,
+            simulation_allowed: true,
+            transaction_id: Some("secret-transaction".into()),
+            state: "IDLE",
+            remaining_ms: None,
+            presentation_stage: 0,
+            message: "local path or error detail".into(),
+        };
+        let diagnostic = DiagnosticStatus {
+            state: status.state,
+            remaining_ms: status.remaining_ms,
+            presentation_stage: status.presentation_stage,
+        };
+        let json = serde_json::to_string(&diagnostic).unwrap();
+        assert_eq!(
+            json,
+            r#"{"state":"IDLE","remainingMs":null,"presentationStage":0}"#
+        );
     }
 }

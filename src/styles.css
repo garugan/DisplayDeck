@@ -25,9 +25,10 @@ h3 { margin-top: 4px; font-size: 20px; }
 .readonly { color: #234f92; background: #dceafe; }
 .connected { color: #146c43; background: #dff5e8; }
 .detached { color: #6b7280; background: #e5e7eb; }
-.notice, .error, .transaction { margin-top: 22px; padding: 16px 18px; border-radius: 12px; }
+.notice, .error, .transaction, .diagnostic-path { margin-top: 22px; padding: 16px 18px; border-radius: 12px; }
 .notice { display: flex; gap: 8px 18px; flex-wrap: wrap; color: #5c4611; background: #fff4ce; border: 1px solid #f0d477; }
 .error { color: #8c1d2a; background: #fee9ec; border: 1px solid #f4b7c0; }
+.diagnostic-path { display: block; color: #174f37; background: #e6f6ed; border: 1px solid #a8d8bd; overflow-wrap: anywhere; }
 .actions { justify-content: flex-start; flex-wrap: wrap; margin: 22px 0; }
 .transaction { background: #101827; color: #f8fafc; }
 .transaction > div:first-child { display: grid; gap: 4px; }
@@ -51,6 +52,8 @@ dd { margin: 0; overflow-wrap: anywhere; }
 details { margin-top: 24px; padding: 16px 18px; }
 summary { cursor: pointer; font-weight: 700; }
 li { margin-top: 7px; overflow-wrap: anywhere; }
+.support { margin-top: 28px; padding-top: 24px; border-top: 1px solid #cfd7e3; }
+.support ul { margin: 10px 0 0; padding-left: 22px; }
 
 @media (max-width: 700px) {
   main { width: min(100% - 24px, 1160px); padding-top: 22px; }
@@ -60,4 +63,10 @@ li { margin-top: 7px; overflow-wrap: anywhere; }
 
 @media (prefers-contrast: more) {
   button, .summary div, .display-card, details { border-width: 2px; }
+}
+
+@media (forced-colors: active) {
+  .readonly, .connected, .detached, .notice, .error, .transaction, .diagnostic-path {
+    border: 1px solid ButtonText;
+  }
 }

@@ -1,8 +1,8 @@
 # DisplayDeck 最短実装計画
 
-最終更新: 2026-08-24
+最終更新: 2026-08-30
 
-状態: Ponytailによるロードマップ改訂済み。Gate AとStage 1は完了した。Gate Bのactual D07は2026-08-30に`DirectoryAnchorUnproven`でNo-Goとなり、exact display cell判定とmutationはOS call 0件のまま終了した。次はread-only MVPのStage 3であり、display mutation、actual machine-dataへの書込み、永続変更、multi-display mutation、配布は不可である。
+状態: Ponytailによるロードマップ改訂済み。Gate AとStage 1は完了した。Gate Bのactual D07は2026-08-30に`DirectoryAnchorUnproven`でNo-Goとなり、exact display cell判定とmutationはOS call 0件のまま終了した。read-only MVPのStage 3実装は完了し、残りはWindowsでのNSIS build/install/smoke/uninstall一回だけである。display mutation、actual machine-dataへの書込み、永続変更、multi-display mutation、配布は不可である。
 
 ## 1. 完成の定義
 
@@ -41,10 +41,10 @@ read-only表示は複数displayでも構わないが、上記MVP条件を外れ�
 | D07 | actual結果=`DirectoryAnchorUnproven` / No-Go | 再測定や代替anchorを追加せずread-only MVPへ進む |
 | D08 | Windows 10一台で25件観測、250 ms / 50 ms候補あり | 履歴として保持し、追加batchを行わない |
 | G1A | templateのみ | 独立bundle作成を止め、Stage 0の一括判断へ統合する |
-| Tauri app / UI | Stage 1実装・Windows smoke完了 | read-only MVPとしてApplyを無効のまま仕上げる |
+| Tauri app / UI | read-only MVP仕上げ完了 | Windows NSIS smokeを一回行う |
 | watchdog / worker / WAL | fake backendで実装・自動test完了 | actual backendへ接続しない |
 | display mutation | D07 No-Goにより終了 | OS call 0件を維持する |
-| installer | 未実装 | Stage 3でNSISだけ作る |
+| installer | NSIS設定とfake actor同梱buildを実装 | Windowsでclean install / launch / uninstallを一回確認する |
 
 Step 9の事前evidence収集はここで終了する。既存artifactは履歴として保持するが、製品コードを作らずにfixture、hash、template、手動batch、承認資料だけを増やさない。
 
@@ -162,12 +162,13 @@ D07を証明できない場合やactual mutationがNo-Goの場合でも、Stage 
 
 - error/recovery状態を含む最小UI仕上げ
 - keyboard、focus、200% zoom、high contrastの基本確認
-- structured local logと明示的diagnostic export
+- 明示操作で一件作るstructured local diagnostic JSON
 - Tauri bundlerのNSIS clean install / launch / uninstall
-- activeまたはunknown recovery中のuninstall拒否
 - 初期support statementと既知の制限
 
 今回のread-only RCではlaunch、display inventory表示、Apply無効、fake safety transaction、clean uninstallを一度ずつ確認する。display mutation、installer matrix、MSI比較、update/repair、schema migration、SmartScreen reputationは実行しない。
+
+このpackageはactual recovery stateを作成・参照せず、同梱actorもfake operationしか行わないため、mutation版用のactive/unknown recovery uninstall拒否は実装しない。将来mutation版を再開する場合は、この安全契約を削除せずinstallerへ実装する。
 
 Windows 11対応を製品表示や公開文言で主張する場合だけ、Windows 11のexact cellを一つ追加して同じRC subsetを実行する。検証していないOS/hardwareは自動的にsupport外とする。
 
@@ -210,4 +211,4 @@ G1A、DD-FR-002 freeze、Phase 2A開始、G2A、UI開始、read-only統合開始
 
 ## 8. 次の一手
 
-D07 No-GoによりStage 2はOS call 0件で終了した。次はStage 3でread-only UI、diagnostic export、NSIS packageを最小実装する。Windows operator作業はそのbuildをpushし、READMEの「現在Windowsで次にすること」を更新するまで発生しない。追加D08測定、fixture再検証、別evidence bundle、display mutationは行わない。
+D07 No-GoによりStage 2はOS call 0件で終了した。Stage 3のread-only UI、diagnostic export、NSIS package設定は最小実装した。次はREADMEの「現在Windowsで次にすること」に従って一回だけpackage smokeを行う。追加D08測定、fixture再検証、別evidence bundle、display mutationは行わない。

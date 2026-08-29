@@ -50,7 +50,7 @@ pub fn capture() -> AppDisplaySnapshot {
         platform: "unsupported",
         capture_status: "UnsupportedPlatform".into(),
         mutation_allowed: false,
-        blockers: vec!["WindowsOnly".into(), "Stage1ReadOnly".into()],
+        blockers: vec!["WindowsOnly".into(), "ReadOnlyMvp".into()],
         displays: Vec::new(),
     }
 }
@@ -123,7 +123,8 @@ pub fn capture() -> AppDisplaySnapshot {
         .iter()
         .map(|blocker| format!("{blocker:?}"))
         .collect::<Vec<_>>();
-    blockers.push("Stage1ReadOnly".into());
+    blockers.push("D07NoGo".into());
+    blockers.push("ReadOnlyMvp".into());
 
     AppDisplaySnapshot {
         schema_version: 1,

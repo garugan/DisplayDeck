@@ -756,7 +756,7 @@ Windows実機で`cargo fmt --check`、55件のunit test、build、CLI実行が�
 
 ## 初期リリースまでの最短roadmap
 
-Step 1〜8のread-only CLI実装とWindows実機観測は完了しました。これ以上read-only探索Stepを増やしません。Gate AとStage 1は完了しました。Gate Bのactual D07は2026-08-30に`DirectoryAnchorUnproven`でNo-Goとなったため、Stage 2のdisplay mutationは行わず、read-only MVPのStage 3へ進みます。installerと配布は未実装です。
+Step 1〜8のread-only CLI実装とWindows実機観測は完了しました。これ以上read-only探索Stepを増やしません。Gate AとStage 1は完了しました。Gate Bのactual D07は2026-08-30に`DirectoryAnchorUnproven`でNo-Goとなったため、Stage 2のdisplay mutationは行わず、read-only MVPのStage 3へ進みました。Stage 3のUI、diagnostic JSON、NSIS設定は実装済みで、Windows package smokeだけが未完了です。public distributionは未承認です。
 
 Step 9で作成したCandidate 04の590 vector、hash/index、再現生成、独立static review、D07 No-Go、D08の25件観測は履歴として保持します。schemaを変更しない限り、fixtureの再生成、手動hash再計算、D08追加batch、Fast Startup/hibernate再検証、別G1A bundle作成は行いません。安全性は実装後の実コードと一つのmutation gateで確認します。
 
@@ -765,7 +765,7 @@ Step 9で作成したCandidate 04の590 vector、hash/index、再現生成、独
 | 0 | MVP範囲と実装baselineの一括承認 | Candidate 04、D08 lab candidate、D07 mutation前Go/No-Go、Stage 1のnon-mutating実装を一度に承認 |
 | 1（完了） | read-only Tauri製品 + fake backendの安全core | current/candidate UI、watchdog、one-shot worker、WAL、deadline/fencingをdisplay変更なしで自動test |
 | 2（No-Go完了） | 製品構成で一つのcontrolled transition | D07が`DirectoryAnchorUnproven`のためOS call 0件で終了 |
-| 3（次） | read-only MVP仕上げ + NSIS | UI基本品質、support statement、clean install/launch/uninstall、read-only smoke |
+| 3（実装済み・実機確認待ち） | read-only MVP仕上げ + NSIS | UI基本品質、support statement、clean install/launch/uninstall、read-only smoke |
 
 承認はStage 0、exact mutation run、MVP releaseの3回だけです。UI、read-only統合、watchdog prototype、個別fixture、G1A/G2Aを別々の承認にしません。
 
@@ -867,18 +867,149 @@ $roots | ForEach-Object { Get-ChildItem $_ -ErrorAction SilentlyContinue } |
 
 `Exited: false`ならprocessは正常に生存しているため、そのwindowで4項目のsmokeを続行します。`Exited: true`なら出力を共有し、原因がWebView2 Runtime不在、WebView2 data directory、native loader、またはWindows crashのどれかを確定してから最小修正します。
 
-## 現在Windowsで次にすること — 作業なし
+## 現在Windowsで次にすること — Stage 3 NSISを一回だけ確認
 
-2026-08-30のactual D07結果は次のとおりです。
+目的は、read-only MVPをNSISでclean installし、起動、5項目のsmoke、uninstallを一回確認することです。D07の再実行、monitor切断、`--gate-b-readiness`、D08追加測定、fixture再検証、actual machine-dataへのwrite、display mutationは行いません。他の2画面は接続したままで構いません。
 
-```text
-D07: NO_GO:DirectoryAnchorUnproven
-MutationAuthorized: false
+### 0. clean install開始条件を確認
+
+Windows 10の「スタート」→「設定」→「アプリ」→「アプリと機能」で`DisplayDeck`を検索します。
+
+- 表示されない: 続行します。
+- 表示される、または判断できない: ここで停止し、既存installがあることを共有します。この手順中に先回りしてuninstallしません。
+
+### 1. buildと自動test
+
+Windows PowerShellを開き、DisplayDeck rootで次を上からそのまま実行します。`bundle:windows`はrelease版のfake actorをbuildし、TauriのNSISへ同梱します。別のcopy commandは不要です。
+
+```powershell
+cd D:\project\displaydeck
+$ErrorActionPreference = 'Stop'
+
+$dirty = git status --porcelain
+if ($LASTEXITCODE -ne 0) { throw "git status failed: $LASTEXITCODE" }
+if (-not [string]::IsNullOrWhiteSpace(($dirty -join "`n"))) {
+    throw "Working tree is not clean. Do not pull; share git status --short."
+}
+
+git pull --ff-only
+if ($LASTEXITCODE -ne 0) { throw "git pull failed: $LASTEXITCODE" }
+
+npm.cmd ci
+if ($LASTEXITCODE -ne 0) { throw "npm ci failed: $LASTEXITCODE" }
+
+cargo fmt --all -- --check
+if ($LASTEXITCODE -ne 0) { throw "cargo fmt failed: $LASTEXITCODE" }
+
+cargo test --workspace --all-targets
+if ($LASTEXITCODE -ne 0) { throw "cargo test failed: $LASTEXITCODE" }
+
+npm.cmd run bundle:windows
+if ($LASTEXITCODE -ne 0) { throw "NSIS build failed: $LASTEXITCODE" }
+
+$installers = @(
+    Get-ChildItem .\target\release\bundle\nsis\*.exe -File |
+        Sort-Object LastWriteTime -Descending
+)
+if ($installers.Count -eq 0) { throw "NSIS installer was not produced" }
+$installer = $installers[0]
+$installer | Select-Object FullName, Length, LastWriteTime | Format-List
+Get-FileHash -Algorithm SHA256 $installer.FullName | Format-List
 ```
 
-これは設計どおりのfail-closed終了です。monitorは切断せず、`--gate-b-readiness`、actual machine-dataへのwrite、display mutationを実行しません。D07、D08、fixtureを追加実行する必要もありません。
+次のいずれかが起きたら、そこで停止してPowerShell出力を共有します。
 
-次のWindows作業はread-only Stage 3 buildをpushした後に、この節を新しいcommandへ更新してから案内します。それまではWindows側で行う作業はありません。
+- working treeがcleanでない。
+- commandが非0で終了する。
+- `target\release\bundle\nsis`にinstaller `.exe`がない。
+- buildがD07、display API、実machine-data writeを要求する。これは想定外なので許可しない。
+
+installerのfull path、size、SHA-256が表示されたら続行します。
+
+### 2. current-user installと起動
+
+同じPowerShellでinstallerを起動します。
+
+```powershell
+$installProcess = Start-Process -FilePath $installer.FullName -PassThru
+$installProcess.WaitForExit()
+if ($installProcess.ExitCode -ne 0) {
+    throw "NSIS install failed: $($installProcess.ExitCode)"
+}
+$smokeStarted = Get-Date
+```
+
+installer画面では通常installだけを完了します。per-machine install、管理者権限、別directory、追加componentは選びません。完了後、「スタート」メニューから`DisplayDeck`を一回起動します。windowが出ない、またはすぐ終了する場合は停止し、以前の「起動直後に終了する場合」の診断だけを実行します。
+
+### 3. app内の5項目smoke
+
+起動したwindowで、次を一回ずつ確認します。
+
+1. 現在のdisplay、mode、candidateまたは変更不能理由が表示される。
+2. `読み取り専用`とD07 No-Goの説明が表示され、`Apply（read-only版では非対応）`を押せない。
+3. `15秒の安全動作をシミュレート`を一回押し、`戻す`または`この状態を維持`でfake transactionがterminal状態になる。
+4. `診断JSONを書き出す`を一回押し、保存先がwindow内に表示される。
+5. keyboardの`Tab` / `Shift+Tab`で有効なbuttonへ移動できる。`Ctrl`+`+`で約200%まで拡大して主要情報が隠れず、`Ctrl`+`0`で戻せる。「設定」→「簡単操作」→「ハイ コントラスト」で一時的にhigh contrastを有効にして内容を読めることを確認し、確認後は元の設定へ戻す。
+
+displayの解像度、refresh rate、配置が実行前から変わっていないことも目視確認します。変化があれば直ちにappを閉じ、追加操作をせず共有します。
+
+### 4. diagnostic JSONの機械確認
+
+appでdiagnosticを一回出した後、同じPowerShellで実行します。
+
+```powershell
+$diagnostics = @(
+    Get-ChildItem "$env:TEMP\DisplayDeck\diagnostics\displaydeck-diagnostics-*.json" -File |
+        Where-Object LastWriteTime -ge $smokeStarted |
+        Sort-Object LastWriteTime -Descending
+)
+if ($diagnostics.Count -ne 1) {
+    throw "Expected exactly one diagnostic JSON from this smoke run"
+}
+
+$diagnosticRaw = Get-Content -Raw $diagnostics[0].FullName
+$diagnostic = $diagnosticRaw | ConvertFrom-Json
+if ($diagnostic.schemaVersion -ne 1) { throw "Unexpected diagnostic schema" }
+if ($diagnostic.productMode -cne 'READ_ONLY') { throw "Unexpected product mode" }
+if ($diagnostic.mutationAllowed -ne $false) { throw "Mutation was not false" }
+if ($diagnosticRaw -match '"viewRevision"|"transactionId"') {
+    throw "Authority token leaked into diagnostics"
+}
+
+[PSCustomObject]@{
+    Path = $diagnostics[0].FullName
+    SchemaVersion = $diagnostic.schemaVersion
+    ProductMode = $diagnostic.productMode
+    MutationAllowed = $diagnostic.mutationAllowed
+    CaptureStatus = $diagnostic.displaySnapshot.captureStatus
+    Displays = @($diagnostic.displaySnapshot.displays).Count
+    AuthorityTokensAbsent = $true
+} | Format-List
+```
+
+`ProductMode: READ_ONLY`、`MutationAllowed: False`、`AuthorityTokensAbsent: True`なら続行します。それ以外はappを閉じて停止し、出力を共有します。diagnosticはoperatorが明示的に作ったlocal JSONであり、Gitへ追加しません。
+
+### 5. appを閉じてuninstall
+
+fake transactionがterminal状態であることを確認してからapp windowを閉じます。PowerShellでactorが残っていないことを確認します。
+
+```powershell
+Start-Sleep -Seconds 2
+$remaining = @(Get-Process displaydeck-app, displaydeck-actor -ErrorAction SilentlyContinue)
+if ($remaining.Count -ne 0) {
+    Start-Sleep -Seconds 20
+    $remaining = @(Get-Process displaydeck-app, displaydeck-actor -ErrorAction SilentlyContinue)
+}
+if ($remaining.Count -ne 0) {
+    $remaining | Select-Object ProcessName, Id | Format-Table -AutoSize
+    throw "DisplayDeck process is still active; do not force-kill or uninstall"
+}
+Write-Output 'DisplayDeck processes stopped: PASS'
+```
+
+`PASS`なら「スタート」→「設定」→「アプリ」→「アプリと機能」→`DisplayDeck`→「アンインストール」を選びます。完了後、同じ一覧から`DisplayDeck`が消えたことを一回確認します。明示的にexportしたdiagnostic JSONと`$env:TEMP\DisplayDeck-Stage1`のfake dataはinstall対象ではないため、uninstall後も残る場合があります。削除確認やcleanupは今回の完了条件にしません。
+
+Stage 3の報告に必要なのは、installerのpath/size/SHA-256、5項目がOK、diagnostic確認結果、process停止PASS、uninstall後にアプリ一覧から消えたこと、display設定が不変だったことだけです。ここまで通ればread-only MVPのStage 3実機確認は完了です。Gate C / public releaseは別途承認が必要です。
 
 ## Windows以外で実行した場合
 

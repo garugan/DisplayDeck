@@ -5,6 +5,7 @@ export default function App() {
   const [snapshot, setSnapshot] = useState<DisplaySnapshot | null>(null);
   const [status, setStatus] = useState<ChangeStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [diagnosticPath, setDiagnosticPath] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const refresh = useCallback(async () => {
@@ -74,11 +75,25 @@ export default function App() {
     }
   };
 
+  const exportDiagnostics = async () => {
+    setBusy(true);
+    setError(null);
+    setDiagnosticPath(null);
+    try {
+      const exported = await api.exportDiagnostics();
+      setDiagnosticPath(`${exported.path}（${exported.bytes.toLocaleString()} bytes）`);
+    } catch (reason) {
+      setError(String(reason));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <main>
       <header className="topbar">
         <div>
-          <p className="eyebrow">DISPLAYDECK / GATE B PREPARATION</p>
+          <p className="eyebrow">DISPLAYDECK / READ-ONLY MVP</p>
           <h1>ディスプレイの状態</h1>
         </div>
         <span className="readonly">読み取り専用</span>
@@ -86,14 +101,14 @@ export default function App() {
 
       <section className="notice" aria-live="polite">
         <strong>Windowsの設定は変更しません。</strong>
-        <span>Gate B承認済み。D07とexact cellの事前判定が揃うまでApplyは無効です。</span>
+        <span>D07は安全側でNo-Goとなったため、このMVPにdisplay変更機能はありません。</span>
       </section>
 
       {error && <p className="error" role="alert">{error}</p>}
 
       <section className="actions" aria-label="操作">
         <button type="button" onClick={() => void refresh()} disabled={busy}>再読み込み</button>
-        <button type="button" disabled title="D07 / exact cell判定待ち">Apply（事前判定待ち）</button>
+        <button type="button" disabled>Apply（read-only版では非対応）</button>
         <button
           type="button"
           className="primary"
@@ -102,7 +117,20 @@ export default function App() {
         >
           15秒の安全動作をシミュレート
         </button>
+        <button
+          type="button"
+          disabled={busy || !snapshot || !status}
+          onClick={() => void exportDiagnostics()}
+        >
+          診断JSONを書き出す
+        </button>
       </section>
+
+      {diagnosticPath && (
+        <output className="diagnostic-path" aria-live="polite">
+          診断JSONを保存しました: {diagnosticPath}
+        </output>
+      )}
 
       {status && status.state !== "IDLE" && (
         <section className="transaction" aria-live="polite">
@@ -179,6 +207,17 @@ export default function App() {
           <ul>{snapshot.blockers.map((blocker) => <li key={blocker}>{blocker}</li>)}</ul>
         </details>
       )}
+
+      <section className="support" aria-labelledby="support-heading">
+        <h2 id="support-heading">このread-only MVPについて</h2>
+        <ul>
+          <li>検証済みcell: Windows 10 Home 10.0.19045 x64 / RTX 4070 driver 32.0.16.1088 / local console / WebView2。</li>
+          <li>実機display: MSI MAG342CQ、TW215FHDNS、BENQ E2220HDの3台構成。</li>
+          <li>display、registry、実machine recovery dataは変更しません。</li>
+          <li>安全動作のシミュレーションはfake workerと一時データだけを使います。</li>
+          <li>Windows 11、他hardware、display変更、MSI、update、repair、public distributionは未検証です。</li>
+        </ul>
+      </section>
     </main>
   );
 }

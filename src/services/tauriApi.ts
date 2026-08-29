@@ -58,6 +58,12 @@ export interface ChangeStatus {
   message: string;
 }
 
+export interface DiagnosticExport {
+  schemaVersion: number;
+  path: string;
+  bytes: number;
+}
+
 interface StatusRequest {
   schemaVersion: 1;
   mode: "BOOT_HANDSHAKE" | "ORDINARY_RESYNC";
@@ -101,6 +107,7 @@ export const api = {
     invoke<ChangeStatus>("revert_display_change", {
       request: { schemaVersion: 1, viewRevision, transactionId },
     }),
+  exportDiagnostics: () => invoke<DiagnosticExport>("export_diagnostics"),
 };
 
 function statusRequest(mode: StatusRequest["mode"]): StatusRequest {
