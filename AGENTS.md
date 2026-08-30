@@ -4,7 +4,7 @@
 
 The roadmap was reduced to the three human gates in `docs/implementation-plan.md` on 2026-08-24. Gate A / Stage 0 and the non-mutating Stage 1 are complete. On 2026-08-30 the actual D07 inspector returned `NO_GO:DirectoryAnchorUnproven` with `MutationAuthorized: false`; Stage 2 therefore ended with zero display API calls. The read-only Stage 3 NSIS build/install/smoke/uninstall verification is complete. On 2026-08-30 the human owner approved Gate C release 01: the 2,160,426-byte installer with SHA-256 `3307DB604C5C96B4E753D499ECB006E2209695006965F9BA7D65A1BF6F1EFD2F` is the completed read-only MVP for the recorded Windows 10 exact cell. No required work remains. Do not rebuild, reinstall, rerun D07, disconnect displays, write actual machine-data, or perform display mutation. Persistent display changes, multi-display mutation, Windows 11 or other support-cell claims, signing, auto-update, and public distribution remain unauthorized. Any product-source or artifact-byte change creates a new candidate and requires the relevant validation and approval.
 
-Whenever the next operator action runs on Windows, first record the exact command and stop/continue conditions in `README.md`, then commit and push that documentation before asking the operator to run it.
+Whenever the next operator action runs on Windows, first record the exact command and stop/continue conditions in `docs/windows-validation-history.md`, add only a concise pointer to `README.md` when the action is current, then commit and push that documentation before asking the operator to run it.
 
 Until a human owner explicitly approves the revised design and separately authorizes the relevant phase, agents must not:
 
