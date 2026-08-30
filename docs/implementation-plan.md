@@ -174,6 +174,38 @@ D07を証明できない場合やactual mutationがNo-Goの場合でも、Stage 
 
 Windows 11対応を製品表示や公開文言で主張する場合だけ、Windows 11のexact cellを一つ追加して同じRC subsetを実行する。検証していないOS/hardwareは自動的にsupport外とする。
 
+### Gate C candidate 01: read-only MVP
+
+状態: human ownerの一括判断待ち。public distributionは未承認。
+
+Qualified artifact:
+
+```text
+Path: D:\project\displaydeck\target\release\bundle\nsis\DisplayDeck_0.1.0_x64-setup.exe
+Length: 2160426
+SHA256: 3307DB604C5C96B4E753D499ECB006E2209695006965F9BA7D65A1BF6F1EFD2F
+Product source commit: e598cc4
+```
+
+Qualification cell:
+
+- Windows 10 Home `10.0.19045` / build `19045` / x64
+- NVIDIA GeForce RTX 4070 / driver `32.0.16.1088`
+- local console / `RemoteSession=False`
+- 3 active paths: MSI MAG342CQ `3440x1440 / 144 Hz`、TW215FHDNS `1080x1920 / 60 Hz`、BENQ E2220HD `1920x1080 / 60 Hz`
+- MSI MAG342CQ HDR off
+
+Qualified scope:
+
+- `READ_ONLY`のdisplay inventory / mode / candidate表示
+- disabled Applyとfake safety transaction
+- operator操作によるlocal diagnostic JSON export
+- current-user NSIS install / launch / uninstall
+
+Stage 3でbuild/test、5項目smoke、diagnostic機械確認、accessibility基本確認、process停止、uninstall、display設定不変がPASSした。最終PASS後にinstallerが再buildされていないこともoperatorが確認した。
+
+Candidate 01はdisplay mutation、永続変更、Windows 11 / 他cellのsupport claim、署名、auto-update、public distributionを含まない。artifact bytesまたは製品sourceが変わった場合だけ新しいcandidateとStage 3 smokeが必要になる。
+
 ## 5. 検証policy
 
 | タイミング | 実行するもの | 実行しないもの |
@@ -213,4 +245,4 @@ G1A、DD-FR-002 freeze、Phase 2A開始、G2A、UI開始、read-only統合開始
 
 ## 8. 次の一手
 
-D07 No-GoによりStage 2はOS call 0件で終了し、Stage 3のWindows package smokeも完了した。次はREADMEの「現在Windowsで次にすること」で既存installerのpath / size / SHA-256を取得し、Gate C候補を作る。追加build、install、D08測定、fixture再検証、別evidence bundle、D07、display mutationは行わない。
+D07 No-GoによりStage 2はOS call 0件で終了し、Stage 3のWindows package smokeも完了した。Gate C candidate 01のartifact identityも固定済みである。次はhuman ownerがrelease / No-Goを一回判断する。追加Windows操作、build、install、D08測定、fixture再検証、別evidence bundle、D07、display mutationは行わない。

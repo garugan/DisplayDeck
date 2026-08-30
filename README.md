@@ -1066,7 +1066,7 @@ Stage 3の報告に必要なのは、installerのpath/size/SHA-256、5項目がO
 
 2026-08-30にWindows 10実機でStep 0〜5がすべてPASSしました。read-only表示、disabled Apply、fake transaction、diagnostic JSON、keyboard / 200% zoom / high contrast、process停止、uninstall後のapp消去、`MutationAllowed: False`、authority token不在を確認済みです。実行前後で解像度、refresh rate、display配置は変化しませんでした。追加のinstall、D07、Gate B、display mutationは行いません。
 
-## 現在Windowsで次にすること — Gate C用installer識別情報の取得
+## Gate C用installer識別情報の取得（完了）
 
 Stage 3で実機確認した既存installerのpath、size、SHA-256を取得するだけです。build、install、app起動、D07、display query / mutationは実行しません。
 
@@ -1095,6 +1095,32 @@ $hash = Get-FileHash -Algorithm SHA256 -LiteralPath $installer.FullName
 - `FullName`、`Length`、`SHA256`が表示される: 3値だけを共有します。それをGate C候補に記録し、human ownerがrelease / No-Goを一回判断します。
 
 Gate Cの明示承認までinstallerの配布、署名、support cell追加は行いません。
+
+Stage 3の最終PASS後にinstallerが再buildされていないことをoperatorが確認し、次のartifactをGate C candidate 01としました。
+
+```text
+Path: D:\project\displaydeck\target\release\bundle\nsis\DisplayDeck_0.1.0_x64-setup.exe
+Length: 2160426
+SHA256: 3307DB604C5C96B4E753D499ECB006E2209695006965F9BA7D65A1BF6F1EFD2F
+Product source commit: e598cc4
+```
+
+`3843A1B35FB9EB39A220E9E3305A7822284E78B870CCD7CA62C1C4DD7CA3BCFB`はzoomとinstaller確認の修正前にStage 3が停止した旧RCであり、qualified artifactではありません。
+
+## 現在の次の手順 — Gate Cの一括判断
+
+Windows操作はありません。human ownerが次の候補をrelease / No-Goのどちらかに一回判断します。
+
+- Candidate: 上記SHA-256のDisplayDeck 0.1.0 NSIS package
+- Scope: 記録済みWindows 10 exact cellに限定したread-only MVP
+- Allowed behavior: display inventory / candidate表示、disabled Apply、fake safety transaction、local diagnostic export
+- Excluded: display mutation、永続変更、Windows 11 / 他cellのsupport claim、署名、auto-update、public distribution
+
+承認する場合は次の一文でGate CとMVP完成を確定できます。
+
+```text
+Gate Cを承認します。SHA-256 3307DB604C5C96B4E753D499ECB006E2209695006965F9BA7D65A1BF6F1EFD2FのDisplayDeck 0.1.0 NSIS packageを、記録済みWindows 10 exact cell限定のread-only MVPとして完成・release扱いにすることを許可します。display mutation、Windows 11 / 他cellのsupport claim、署名、auto-update、public distributionは許可しません。
+```
 
 ## Windows以外で実行した場合
 
