@@ -929,18 +929,70 @@ installerのfull path、size、SHA-256が表示されたら続行します。
 
 ### 2. current-user installと起動
 
-同じPowerShellでinstallerを起動します。
+このinstallerはinteractiveです。`/S`、`/P`、`/UPDATE`を渡さず、管理者権限も使用しません。まず同じPowerShellでinstaller windowだけを起動します。
 
 ```powershell
+$expectedInstallDir = Join-Path $env:LOCALAPPDATA 'DisplayDeck'
 $installProcess = Start-Process -FilePath $installer.FullName -PassThru
+Write-Output "Installer PID: $($installProcess.Id)"
+Write-Output "Expected install directory: $expectedInstallDir"
+```
+
+表示されたinstaller windowで、次を順に操作します。PowerShellの`WaitForExit`だけではinstallは進みません。
+
+1. Welcome画面で「次へ」を選ぶ。
+2. install先が上で表示された`%LOCALAPPDATA%\DisplayDeck`であることを確認する。別pathなら変更せず停止する。
+3. Start Menu folderは`DisplayDeck`のままにする。
+4. 「インストール」を選び、file copyが完了するまで待つ。errorまたはcancelなら停止する。
+5. 完了画面で「完了」を選ぶ。ここではappの自動起動を選ばなくてよい。
+
+windowを「完了」で閉じた後、同じPowerShellでprocess終了とinstall成果物を確認します。
+
+```powershell
 $installProcess.WaitForExit()
 if ($installProcess.ExitCode -ne 0) {
     throw "NSIS install failed: $($installProcess.ExitCode)"
 }
+
+$installedExe = Join-Path $expectedInstallDir 'displaydeck-app.exe'
+$installedActor = Join-Path $expectedInstallDir 'displaydeck-actor.exe'
+$uninstaller = Join-Path $expectedInstallDir 'uninstall.exe'
+$uninstallKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\DisplayDeck'
+$startMenuShortcut = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\DisplayDeck\DisplayDeck.lnk'
+
+$missingFiles = @($installedExe, $installedActor, $uninstaller) |
+    Where-Object { -not (Test-Path -LiteralPath $_ -PathType Leaf) }
+if (@($missingFiles).Count -ne 0) {
+    throw "Missing installed file(s): $($missingFiles -join ', ')"
+}
+
+$registration = Get-ItemProperty -LiteralPath $uninstallKey -ErrorAction SilentlyContinue
+if (-not $registration) { throw "DisplayDeck HKCU uninstall registration is missing" }
+if ($registration.DisplayName -cne 'DisplayDeck') { throw "Unexpected uninstall DisplayName" }
+if ($registration.DisplayVersion -cne '0.1.0') { throw "Unexpected installed version" }
+if (([string]$registration.InstallLocation).Trim('"') -ne $expectedInstallDir) {
+    throw "Unexpected registered install location: $($registration.InstallLocation)"
+}
+if (([string]$registration.UninstallString).Trim('"') -ne $uninstaller) {
+    throw "Unexpected registered uninstaller: $($registration.UninstallString)"
+}
+if (-not (Test-Path -LiteralPath $startMenuShortcut -PathType Leaf)) {
+    throw "DisplayDeck Start Menu shortcut is missing"
+}
+
+[PSCustomObject]@{
+    InstalledExecutable = $installedExe
+    InstalledActor = $installedActor
+    Uninstaller = $uninstaller
+    UninstallRegistration = $uninstallKey
+    StartMenuShortcut = $startMenuShortcut
+    InstallEvidence = 'PASS'
+} | Format-List
+
 $smokeStarted = Get-Date
 ```
 
-installer画面では通常installだけを完了します。per-machine install、管理者権限、別directory、追加componentは選びません。完了後、「スタート」メニューから`DisplayDeck`を一回起動します。windowが出ない、またはすぐ終了する場合は停止し、以前の「起動直後に終了する場合」の診断だけを実行します。
+`InstallEvidence: PASS`が揃った場合だけ、作成されたStart Menuの`DisplayDeck`を一回起動します。ExitCodeが0でも、exe、HKCU uninstall registration、shortcutのいずれかがなければ失敗として停止します。windowが出ない、またはすぐ終了する場合は停止し、以前の「起動直後に終了する場合」の診断だけを実行します。
 
 ### 3. app内の5項目smoke
 

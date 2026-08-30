@@ -11,6 +11,7 @@
       "allowDowngrades": false,
       "nsis": {
         "installMode": "currentUser",
+        "startMenuFolder": "DisplayDeck",
         "languages": ["Japanese"]
       }
     }
