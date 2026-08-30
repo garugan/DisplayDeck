@@ -25,7 +25,14 @@ copyFileSync(
   resolve(binaries, "displaydeck-actor-x86_64-pc-windows-msvc.exe"),
 );
 
-run("npm.cmd", ["run", "tauri", "build"]);
+run("npm.cmd", [
+  "run",
+  "tauri",
+  "--",
+  "build",
+  "--config",
+  resolve(root, "src-tauri", "tauri.bundle.windows.conf.json"),
+]);
 
 function run(command, args) {
   const result = spawnSync(command, args, { cwd: root, stdio: "inherit" });

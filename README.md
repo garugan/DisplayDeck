@@ -880,7 +880,7 @@ Windows 10の「スタート」→「設定」→「アプリ」→「アプリ�
 
 ### 1. buildと自動test
 
-Windows PowerShellを開き、DisplayDeck rootで次を上からそのまま実行します。`bundle:windows`はrelease版のfake actorをbuildし、TauriのNSISへ同梱します。別のcopy commandは不要です。
+Windows PowerShellを開き、DisplayDeck rootで次を上からそのまま実行します。通常の`cargo test`はsidecarを要求しません。その後の`bundle:windows`だけがrelease版fake actorをbuildし、NSIS専用configを明示的に読み込んで同梱します。別のcopy commandは不要です。
 
 ```powershell
 cd D:\project\displaydeck
