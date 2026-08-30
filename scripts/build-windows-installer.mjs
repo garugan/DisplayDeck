@@ -25,10 +25,8 @@ copyFileSync(
   resolve(binaries, "displaydeck-actor-x86_64-pc-windows-msvc.exe"),
 );
 
-run("npm.cmd", [
-  "run",
-  "tauri",
-  "--",
+run(process.execPath, [
+  resolve(root, "node_modules", "@tauri-apps", "cli", "tauri.js"),
   "build",
   "--config",
   resolve(root, "src-tauri", "tauri.bundle.windows.conf.json"),
