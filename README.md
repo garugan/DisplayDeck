@@ -876,7 +876,8 @@ $roots | ForEach-Object { Get-ChildItem $_ -ErrorAction SilentlyContinue } |
 Windows 10の「スタート」→「設定」→「アプリ」→「アプリと機能」で`DisplayDeck`を検索します。
 
 - 表示されない: 続行します。
-- 表示される、または判断できない: ここで停止し、既存installがあることを共有します。この手順中に先回りしてuninstallしません。
+- 今回のStage 3 smokeでinstallし、修正待ちで停止した旧RCが表示される: appを閉じ、後述Step 5のprocess停止確認を実行してから通常の「アンインストール」で旧RCを削除します。一覧から消えたことを確認して続行します。force-killや手動file削除は行いません。
+- 由来が不明なDisplayDeckが表示される、または判断できない: ここで停止し、既存installがあることを共有します。
 
 ### 1. buildと自動test
 
@@ -949,7 +950,7 @@ installer画面では通常installだけを完了します。per-machine install
 2. `読み取り専用`とD07 No-Goの説明が表示され、`Apply（read-only版では非対応）`を押せない。
 3. `15秒の安全動作をシミュレート`を一回押し、`戻す`または`この状態を維持`でfake transactionがterminal状態になる。
 4. `診断JSONを書き出す`を一回押し、保存先がwindow内に表示される。
-5. keyboardの`Tab` / `Shift+Tab`で有効なbuttonへ移動できる。`Ctrl`+`+`で約200%まで拡大して主要情報が隠れず、`Ctrl`+`0`で戻せる。「設定」→「簡単操作」→「ハイ コントラスト」で一時的にhigh contrastを有効にして内容を読めることを確認し、確認後は元の設定へ戻す。
+5. keyboardの`Tab` / `Shift+Tab`で有効なbuttonへ移動できる。Tauriで有効化したWebView2 native zoomにより、`Ctrl`+`+`で約200%まで拡大して主要情報が隠れず、`Ctrl`+`0`で戻せる。「設定」→「簡単操作」→「ハイ コントラスト」で一時的にhigh contrastを有効にして内容を読めることを確認し、確認後は元の設定へ戻す。
 
 displayの解像度、refresh rate、配置が実行前から変わっていないことも目視確認します。変化があれば直ちにappを閉じ、追加操作をせず共有します。
 
