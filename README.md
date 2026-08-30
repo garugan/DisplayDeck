@@ -1107,20 +1107,22 @@ Product source commit: e598cc4
 
 `3843A1B35FB9EB39A220E9E3305A7822284E78B870CCD7CA62C1C4DD7CA3BCFB`はzoomとinstaller確認の修正前にStage 3が停止した旧RCであり、qualified artifactではありません。
 
-## 現在の次の手順 — Gate Cの一括判断
+## Gate C承認とMVP完成
 
-Windows操作はありません。human ownerが次の候補をrelease / No-Goのどちらかに一回判断します。
+2026-08-30にhuman ownerが次の候補を承認しました。
 
 - Candidate: 上記SHA-256のDisplayDeck 0.1.0 NSIS package
 - Scope: 記録済みWindows 10 exact cellに限定したread-only MVP
 - Allowed behavior: display inventory / candidate表示、disabled Apply、fake safety transaction、local diagnostic export
 - Excluded: display mutation、永続変更、Windows 11 / 他cellのsupport claim、署名、auto-update、public distribution
 
-承認する場合は次の一文でGate CとMVP完成を確定できます。
+承認記録:
 
 ```text
 Gate Cを承認します。SHA-256 3307DB604C5C96B4E753D499ECB006E2209695006965F9BA7D65A1BF6F1EFD2FのDisplayDeck 0.1.0 NSIS packageを、記録済みWindows 10 exact cell限定のread-only MVPとして完成・release扱いにすることを許可します。display mutation、Windows 11 / 他cellのsupport claim、署名、auto-update、public distributionは許可しません。
 ```
+
+これによりDisplayDeck 0.1.0 read-only MVPは完成です。追加のWindows操作、build、install、検証、配布はありません。artifactまたは製品sourceを変更するときだけ新しいcandidateとして再開します。
 
 ## Windows以外で実行した場合
 

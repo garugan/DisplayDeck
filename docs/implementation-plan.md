@@ -2,7 +2,7 @@
 
 最終更新: 2026-08-30
 
-状態: Ponytailによるロードマップ改訂済み。Gate AとStage 1は完了した。Gate Bのactual D07は2026-08-30に`DirectoryAnchorUnproven`でNo-Goとなり、exact display cell判定とmutationはOS call 0件のまま終了した。read-only MVPのStage 3はWindows実機でNSIS build/install/smoke/uninstallまで完了した。残りは最終installerの識別情報を記録し、Gate Cでrelease / No-Goを一回判断することだけである。display mutation、actual machine-dataへの書込み、永続変更、multi-display mutation、配布は不可である。
+状態: Gate A、Stage 1、Gate B No-Go、Stage 3、Gate Cが完了した。SHA-256 `3307DB604C5C96B4E753D499ECB006E2209695006965F9BA7D65A1BF6F1EFD2F`のDisplayDeck 0.1.0 NSIS packageを、記録済みWindows 10 exact cell限定のread-only MVPとして完成・release扱いにした。display mutation、actual machine-dataへの書込み、永続変更、multi-display mutation、Windows 11 / 他cellのsupport claim、署名、auto-update、public distributionは不可である。
 
 ## 1. 完成の定義
 
@@ -174,9 +174,9 @@ D07を証明できない場合やactual mutationがNo-Goの場合でも、Stage 
 
 Windows 11対応を製品表示や公開文言で主張する場合だけ、Windows 11のexact cellを一つ追加して同じRC subsetを実行する。検証していないOS/hardwareは自動的にsupport外とする。
 
-### Gate C candidate 01: read-only MVP
+### Gate C release 01: read-only MVP
 
-状態: human ownerの一括判断待ち。public distributionは未承認。
+状態: 2026-08-30 human owner承認済み。read-only MVP完成。public distributionは未承認。
 
 Qualified artifact:
 
@@ -204,7 +204,7 @@ Qualified scope:
 
 Stage 3でbuild/test、5項目smoke、diagnostic機械確認、accessibility基本確認、process停止、uninstall、display設定不変がPASSした。最終PASS後にinstallerが再buildされていないこともoperatorが確認した。
 
-Candidate 01はdisplay mutation、永続変更、Windows 11 / 他cellのsupport claim、署名、auto-update、public distributionを含まない。artifact bytesまたは製品sourceが変わった場合だけ新しいcandidateとStage 3 smokeが必要になる。
+Release 01はdisplay mutation、永続変更、Windows 11 / 他cellのsupport claim、署名、auto-update、public distributionを含まない。artifact bytesまたは製品sourceが変わった場合だけ新しいcandidateとStage 3 smokeが必要になる。
 
 ## 5. 検証policy
 
@@ -245,4 +245,4 @@ G1A、DD-FR-002 freeze、Phase 2A開始、G2A、UI開始、read-only統合開始
 
 ## 8. 次の一手
 
-D07 No-GoによりStage 2はOS call 0件で終了し、Stage 3のWindows package smokeも完了した。Gate C candidate 01のartifact identityも固定済みである。次はhuman ownerがrelease / No-Goを一回判断する。追加Windows操作、build、install、D08測定、fixture再検証、別evidence bundle、D07、display mutationは行わない。
+Gate C release 01の承認によりread-only MVPは完成した。現在の必須作業はない。artifactまたは製品sourceを変更するときだけ新しいcandidateを作る。追加Windows操作、build、install、D08測定、fixture再検証、別evidence bundle、D07、display mutationは行わない。
