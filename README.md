@@ -756,7 +756,7 @@ Windows実機で`cargo fmt --check`、55件のunit test、build、CLI実行が�
 
 ## 初期リリースまでの最短roadmap
 
-Step 1〜8のread-only CLI実装とWindows実機観測は完了しました。これ以上read-only探索Stepを増やしません。Gate AとStage 1は完了しました。Gate Bのactual D07は2026-08-30に`DirectoryAnchorUnproven`でNo-Goとなったため、Stage 2のdisplay mutationは行わず、read-only MVPのStage 3へ進みました。Stage 3のUI、diagnostic JSON、NSIS設定は実装済みで、Windows package smokeだけが未完了です。public distributionは未承認です。
+Step 1〜8のread-only CLI実装とWindows実機観測は完了しました。これ以上read-only探索Stepを増やしません。Gate AとStage 1は完了しました。Gate Bのactual D07は2026-08-30に`DirectoryAnchorUnproven`でNo-Goとなったため、Stage 2のdisplay mutationはOS call 0件で終了しました。read-only MVPのStage 3はWindows実機でbuild、install、5項目smoke、diagnostic確認、uninstall、display設定不変まで完了しました。次はGate C候補に使う最終installerの識別情報を一回取得します。public distributionは未承認です。
 
 Step 9で作成したCandidate 04の590 vector、hash/index、再現生成、独立static review、D07 No-Go、D08の25件観測は履歴として保持します。schemaを変更しない限り、fixtureの再生成、手動hash再計算、D08追加batch、Fast Startup/hibernate再検証、別G1A bundle作成は行いません。安全性は実装後の実コードと一つのmutation gateで確認します。
 
@@ -765,7 +765,7 @@ Step 9で作成したCandidate 04の590 vector、hash/index、再現生成、独
 | 0 | MVP範囲と実装baselineの一括承認 | Candidate 04、D08 lab candidate、D07 mutation前Go/No-Go、Stage 1のnon-mutating実装を一度に承認 |
 | 1（完了） | read-only Tauri製品 + fake backendの安全core | current/candidate UI、watchdog、one-shot worker、WAL、deadline/fencingをdisplay変更なしで自動test |
 | 2（No-Go完了） | 製品構成で一つのcontrolled transition | D07が`DirectoryAnchorUnproven`のためOS call 0件で終了 |
-| 3（実装済み・実機確認待ち） | read-only MVP仕上げ + NSIS | UI基本品質、support statement、clean install/launch/uninstall、read-only smoke |
+| 3（完了） | read-only MVP仕上げ + NSIS | UI基本品質、support statement、clean install/launch/uninstall、read-only smoke |
 
 承認はStage 0、exact mutation run、MVP releaseの3回だけです。UI、read-only統合、watchdog prototype、個別fixture、G1A/G2Aを別々の承認にしません。
 
@@ -867,7 +867,7 @@ $roots | ForEach-Object { Get-ChildItem $_ -ErrorAction SilentlyContinue } |
 
 `Exited: false`ならprocessは正常に生存しているため、そのwindowで4項目のsmokeを続行します。`Exited: true`なら出力を共有し、原因がWebView2 Runtime不在、WebView2 data directory、native loader、またはWindows crashのどれかを確定してから最小修正します。
 
-## 現在Windowsで次にすること — Stage 3 NSISを一回だけ確認
+## Stage 3 Windows NSIS確認手順（完了）
 
 目的は、read-only MVPをNSISでclean installし、起動、5項目のsmoke、uninstallを一回確認することです。D07の再実行、monitor切断、`--gate-b-readiness`、D08追加測定、fixture再検証、actual machine-dataへのwrite、display mutationは行いません。他の2画面は接続したままで構いません。
 
@@ -1063,6 +1063,38 @@ Write-Output 'DisplayDeck processes stopped: PASS'
 `PASS`なら「スタート」→「設定」→「アプリ」→「アプリと機能」→`DisplayDeck`→「アンインストール」を選びます。完了後、同じ一覧から`DisplayDeck`が消えたことを一回確認します。明示的にexportしたdiagnostic JSONと`$env:TEMP\DisplayDeck-Stage1`のfake dataはinstall対象ではないため、uninstall後も残る場合があります。削除確認やcleanupは今回の完了条件にしません。
 
 Stage 3の報告に必要なのは、installerのpath/size/SHA-256、5項目がOK、diagnostic確認結果、process停止PASS、uninstall後にアプリ一覧から消えたこと、display設定が不変だったことだけです。ここまで通ればread-only MVPのStage 3実機確認は完了です。Gate C / public releaseは別途承認が必要です。
+
+2026-08-30にWindows 10実機でStep 0〜5がすべてPASSしました。read-only表示、disabled Apply、fake transaction、diagnostic JSON、keyboard / 200% zoom / high contrast、process停止、uninstall後のapp消去、`MutationAllowed: False`、authority token不在を確認済みです。実行前後で解像度、refresh rate、display配置は変化しませんでした。追加のinstall、D07、Gate B、display mutationは行いません。
+
+## 現在Windowsで次にすること — Gate C用installer識別情報の取得
+
+Stage 3で実機確認した既存installerのpath、size、SHA-256を取得するだけです。build、install、app起動、D07、display query / mutationは実行しません。
+
+DisplayDeck rootのPowerShellで次を一度実行します。
+
+```powershell
+cd D:\project\displaydeck
+git pull --ff-only
+if ($LASTEXITCODE -ne 0) { throw "git pull failed: $LASTEXITCODE" }
+
+$installerPath = '.\target\release\bundle\nsis\DisplayDeck_0.1.0_x64-setup.exe'
+if (-not (Test-Path -LiteralPath $installerPath -PathType Leaf)) {
+    throw 'Stage 3で確認したinstallerがありません。再buildせずここで停止してください'
+}
+
+$installer = Get-Item -LiteralPath $installerPath
+$hash = Get-FileHash -Algorithm SHA256 -LiteralPath $installer.FullName
+[PSCustomObject]@{
+    FullName = $installer.FullName
+    Length = $installer.Length
+    SHA256 = $hash.Hash
+} | Format-List
+```
+
+- `git pull` failure、installer不在、hash取得failure: 再buildせず停止し、出力を共有します。
+- `FullName`、`Length`、`SHA256`が表示される: 3値だけを共有します。それをGate C候補に記録し、human ownerがrelease / No-Goを一回判断します。
+
+Gate Cの明示承認までinstallerの配布、署名、support cell追加は行いません。
 
 ## Windows以外で実行した場合
 

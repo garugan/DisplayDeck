@@ -2,7 +2,7 @@
 
 最終更新: 2026-08-30
 
-状態: Ponytailによるロードマップ改訂済み。Gate AとStage 1は完了した。Gate Bのactual D07は2026-08-30に`DirectoryAnchorUnproven`でNo-Goとなり、exact display cell判定とmutationはOS call 0件のまま終了した。read-only MVPのStage 3実装は完了し、残りはWindowsでのNSIS build/install/smoke/uninstall一回だけである。display mutation、actual machine-dataへの書込み、永続変更、multi-display mutation、配布は不可である。
+状態: Ponytailによるロードマップ改訂済み。Gate AとStage 1は完了した。Gate Bのactual D07は2026-08-30に`DirectoryAnchorUnproven`でNo-Goとなり、exact display cell判定とmutationはOS call 0件のまま終了した。read-only MVPのStage 3はWindows実機でNSIS build/install/smoke/uninstallまで完了した。残りは最終installerの識別情報を記録し、Gate Cでrelease / No-Goを一回判断することだけである。display mutation、actual machine-dataへの書込み、永続変更、multi-display mutation、配布は不可である。
 
 ## 1. 完成の定義
 
@@ -41,10 +41,10 @@ read-only表示は複数displayでも構わないが、上記MVP条件を外れ�
 | D07 | actual結果=`DirectoryAnchorUnproven` / No-Go | 再測定や代替anchorを追加せずread-only MVPへ進む |
 | D08 | Windows 10一台で25件観測、250 ms / 50 ms候補あり | 履歴として保持し、追加batchを行わない |
 | G1A | templateのみ | 独立bundle作成を止め、Stage 0の一括判断へ統合する |
-| Tauri app / UI | read-only MVP仕上げ完了 | Windows NSIS smokeを一回行う |
+| Tauri app / UI | read-only MVP仕上げとWindows NSIS smoke完了 | Gate C判断まで変更しない |
 | watchdog / worker / WAL | fake backendで実装・自動test完了 | actual backendへ接続しない |
 | display mutation | D07 No-Goにより終了 | OS call 0件を維持する |
-| installer | NSIS設定とfake actor同梱buildを実装 | Windowsでclean install / launch / uninstallを一回確認する |
+| installer | NSIS設定、fake actor同梱、clean install / launch / uninstall完了 | 最終artifactのpath / size / SHA-256をGate C候補に記録する |
 
 Step 9の事前evidence収集はここで終了する。既存artifactは履歴として保持するが、製品コードを作らずにfixture、hash、template、手動batch、承認資料だけを増やさない。
 
@@ -158,6 +158,8 @@ D07を証明できない場合やactual mutationがNo-Goの場合でも、Stage 
 
 ### Stage 3: MVP仕上げとNSIS
 
+結果: 2026-08-30にWindows 10実機でbuild、current-user install、5項目smoke、diagnostic機械確認、process停止、uninstallを完了した。uninstall後にDisplayDeckは消え、実行前後でdisplayの解像度、refresh rate、配置に変化はなかった。`READ_ONLY`、`MutationAllowed: False`、authority token不在も確認済みである。
+
 作るもの:
 
 - error/recovery状態を含む最小UI仕上げ
@@ -211,4 +213,4 @@ G1A、DD-FR-002 freeze、Phase 2A開始、G2A、UI開始、read-only統合開始
 
 ## 8. 次の一手
 
-D07 No-GoによりStage 2はOS call 0件で終了した。Stage 3のread-only UI、diagnostic export、NSIS package設定は最小実装した。次はREADMEの「現在Windowsで次にすること」に従って一回だけpackage smokeを行う。追加D08測定、fixture再検証、別evidence bundle、display mutationは行わない。
+D07 No-GoによりStage 2はOS call 0件で終了し、Stage 3のWindows package smokeも完了した。次はREADMEの「現在Windowsで次にすること」で既存installerのpath / size / SHA-256を取得し、Gate C候補を作る。追加build、install、D08測定、fixture再検証、別evidence bundle、D07、display mutationは行わない。
