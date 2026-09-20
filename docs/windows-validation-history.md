@@ -1,6 +1,23 @@
 # DisplayDeck Windows検証履歴・手順書
 
-## RC3 Smoke完了・releaseファイルの固定（現行手順）
+## RC3 Gate C判定待ち（現在地）
+
+2026-09-21、operatorから`Release files staged; RC3 and release copy are identical`と最終manifest出力を受領した。
+
+- 保存先: `D:\project\displaydeck\release\v0.1.0\DisplayDeck_0.1.0_x64-setup.exe`
+- 製品source: `e598cc4d08a37ec6815a80a2f864f562c59ed8e6`
+- サイズ: `2160643` bytes
+- SHA256: `25DEFCA4CC6DA01F350CC82E1302FF0CE1783BBCEE2A88B77EE2734E0C637EFD`
+- Smoke Test: 10項目PASS（operator報告）
+- artifactIdentity: `SOURCE_AND_COPY_SHA256_VERIFIED`
+- Gate C: `PENDING`
+- Release status: `STAGED_NOT_RELEASED`
+
+build・Installer生成・RC固定・Smoke・試験後のRCとreleaseコピーのSHA一致は確認済み。releaseファイル一式はWindowsに保存済みで、こちらのMacでは実体を直接検査していない。証跡はoperator出力に基づく。正確な試験時刻、diagnostic path、今回の実cell詳細値は未受領のまま保持する。
+
+追加のWindows操作は現在不要。次はhuman ownerが上記SHAのv0.1.0 read-only releaseをGate Cで判断する。承認範囲は試験したWindows cellに限り、public distribution、署名、他cellのsupport claim、mutationは含めない。承認後にrelease記録・manifestの判定を確定し、製品sourceと明確に対応する`v0.1.0`tagを作成する。Gate Bは前提ではない。
+
+## RC3 Smoke完了・releaseファイルの固定（完了）
 
 2026-09-21にhuman ownerから「検証終了　10項目オールpass」と報告された。install、起動、Display / mode表示、READ_ONLY、変更UI無効、diagnostic取得、終了後設定不変、uninstall、uninstall後設定不変の10項目をPASSとして記録した。試験時刻・diagnostic path・実cellの詳細値と試験前後のhash出力は未受領であり、捏造しない。Smokeの再実行は求めない。
 
@@ -16,7 +33,7 @@ node scripts/rc-stage.mjs
 
 続行条件: `Release files staged`が表示されたらmanifest出力を共有する。保存先`D:\project\displaydeck\release\v0.1.0`にInstaller、SHA256SUMS、release-manifest、smoke-test、RELEASE_NOTES、build.logが揃う。release-manifestはGate C PENDING / STAGED_NOT_RELEASED。これは配布・Release・tag作成ではない。出力確認後、human ownerへ固定SHAとread-only範囲を明記してGate C判定を求める。
 
-ローカル検証: スクリプト構文、共用SHA検証の不一致拒否。Windowsでの実体コピーは未実施。
+ローカル検証: スクリプト構文、共用SHA検証の不一致拒否。Windowsでの実体コピーは完了し、上のGate C判定待ち節に結果を記録した。
 
 ## RC3最終Smoke Test（10項目PASS）
 

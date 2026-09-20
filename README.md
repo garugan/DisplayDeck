@@ -13,23 +13,22 @@ Display設定変更、Apply / Restore、WAL、crash recovery、watchdog、mutati
 
 ## リリース進捗
 
-現行のチェックリストは[実装計画のv0.1.0 Release / v0.2 Mutation](docs/implementation-plan.md#v010-release)で管理します。v0.1.0はRC3とInstaller SHA256を固定済みです。最終Smoke Testも10項目PASSです。残りは最終releaseファイルの同一性確認、証跡確定、Gate C判定、Releaseです。v0.2 Mutationは別トラックです。
+現行のチェックリストは[実装計画のv0.1.0 Release / v0.2 Mutation](docs/implementation-plan.md#v010-release)で管理します。v0.1.0はRC3とInstaller SHA256を固定済みです。最終Smoke Testも10項目PASSです。releaseコピーとのSHA256一致と証跡更新も完了しました。残りはGate C判定とReleaseです。v0.2 Mutationは別トラックです。
 
-## 次に実行すること（Windows）
+## 次に行うこと：Gate C判定
 
-**RC3のSmoke Testは10項目すべてPASSです。再build・再試験は不要です。** 最後に固定RCをreleaseフォルダへコピーし、コピー前後のSHA256を照合します。
+**Windowsでの追加操作・再build・再試験は現在不要です。** RC3とreleaseコピーのSHA256一致を確認し、Smoke Test 10項目PASSを記録しました。
 
-PowerShellで1行ずつ実行してください。エラーが出たら次へ進まず停止します。
-
-```powershell
-cd D:\project\displaydeck
-git pull --ff-only
-node scripts/rc-stage.mjs
+```text
+Artifact: DisplayDeck_0.1.0_x64-setup.exe
+Size: 2160643 bytes
+SHA256: 25DEFCA4CC6DA01F350CC82E1302FF0CE1783BBCEE2A88B77EE2734E0C637EFD
+Source: e598cc4d08a37ec6815a80a2f864f562c59ed8e6
 ```
 
-`Release files staged`と表示されたら、その出力をチャットへ共有してください。`release/v0.1.0`へInstaller・SHA256・manifest・Smoke記録・Release Notes・buildログを保存します。既存ファイルは上書きしません。エラー時は削除・再実行せず出力を共有してください。
+human ownerによる、このartifactのv0.1.0 read-only Release承認を待っています。Gate Bは不要です。現在は`STAGED_NOT_RELEASED`で、tagは未作成です。
 
-手順: [RC3 Smoke完了・releaseファイルの固定](docs/windows-validation-history.md#rc3-smoke完了releaseファイルの固定現行手順)。Gate Cは未判定で、配布・tag作成はまだ行いません。
+証跡: [RC3 Gate C判定待ち](docs/windows-validation-history.md#rc3-gate-c判定待ち現在地)。
 
 ## 過去のrelease 01検証・承認記録
 

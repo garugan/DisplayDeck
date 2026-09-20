@@ -13,7 +13,7 @@ Display設定変更、Apply / Restore、WAL、crash recovery、watchdog、mutati
 - [x] Release Candidateを固定（RC3、製品source `e598cc4`）
 - [x] Installer SHA256固定（RC3: `25DEFCA4CC6DA01F350CC82E1302FF0CE1783BBCEE2A88B77EE2734E0C637EFD`）
 - [x] 最終Smoke Test（2026-09-21 operator報告、10項目PASS）
-- [ ] 証跡更新
+- [x] 証跡更新（RC3 / releaseコピーのSHA一致、Smoke全PASSを記録）
 - [ ] Gate C判定
 - [ ] Release
 
