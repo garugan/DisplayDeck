@@ -202,7 +202,7 @@ mod platform {
     };
     use crate::machine_storage::{
         current_process_is_local_system, token_sid_digest, FreshProvisionObservation,
-        InstallFileEvidence, ProtectedInstall,
+        InstallFileEvidence, ProtectedInstall, ProvisionMachineGate,
     };
 
     const SERVICE_DELETE: u32 = 0x0001_0000;
@@ -221,6 +221,7 @@ mod platform {
     const INSTALL_ANCHOR_UNPROVEN: u32 = 8;
     const PROCESS_IMAGE_NAME_UNPROVEN: u32 = 9;
     const FRESH_PROVISION_OBSERVATION_UNPROVEN: u32 = 10;
+    const MACHINE_GATE_UNPROVEN: u32 = 11;
     const SERVICE_NAME: PCWSTR = w!("DisplayDeckProvisionV1");
     const SERVICE_DISPLAY_NAME: PCWSTR = w!("DisplayDeck Provision V1");
 
@@ -484,15 +485,17 @@ mod platform {
         let install = ProtectedInstall::open().ok_or(INSTALL_ANCHOR_UNPROVEN)?;
         let _package = verify_install_package(&install)?;
 
-        let fresh = FreshProvisionObservation::observe(owner_token, owner_sid_digest)
+        let _gate = ProvisionMachineGate::acquire(owner_token, owner_sid_digest)
+            .ok_or(MACHINE_GATE_UNPROVEN)?;
+        let fresh = FreshProvisionObservation::observe(&_gate, owner_token, owner_sid_digest)
             .ok_or(FRESH_PROVISION_OBSERVATION_UNPROVEN)?;
         if !fresh.reobserve() || !install.revalidate() {
             return Err(FRESH_PROVISION_OBSERVATION_UNPROVEN);
         }
 
         // ponytail: evidence checks only. Loaded-process image binding, certificate
-        // lifecycle policy, machine gate and Candidate 04 writer must precede any
-        // grant. Ungated absence observations are not atomic create authority.
+        // lifecycle policy and Candidate 04 writer must precede any grant.
+        // Gate ownership and absence observations are not atomic create authority.
         Err(PROVISION_ANCHOR_NOT_IMPLEMENTED)
     }
 

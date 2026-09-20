@@ -1,3 +1,13 @@
+// WaitForSingleObject outcomes: Some(false) still owns an abandoned mutex.
+#[cfg(any(target_os = "windows", test))]
+fn gate_wait_ownership(status: u32) -> Option<bool> {
+    match status {
+        0 => Some(true),     // WAIT_OBJECT_0
+        0x80 => Some(false), // WAIT_ABANDONED
+        _ => None,
+    }
+}
+
 #[cfg(any(target_os = "windows", test))]
 fn relative_components(path: &[u16], mount: &[u16]) -> Option<Vec<Vec<u16>>> {
     if path.contains(&0) || mount.contains(&0) || mount.last() != Some(&(b'\\' as u16)) {
@@ -339,14 +349,131 @@ mod platform {
         }
     }
 
+    // Thread-owned mutex guard: never move ownership to a different thread.
+    pub(crate) struct ProvisionMachineGate {
+        handle: HeldHandle,
+        _thread: std::marker::PhantomData<std::rc::Rc<()>>,
+    }
+
+    impl ProvisionMachineGate {
+        pub(crate) fn acquire(owner_token: HANDLE, expected_owner: [u8; 32]) -> Option<Self> {
+            use windows::{
+                core::{w, PWSTR},
+                Win32::{
+                    Foundation::LocalFree,
+                    Security::{
+                        Authorization::{
+                            ConvertSidToStringSidW,
+                            ConvertStringSecurityDescriptorToSecurityDescriptorW, SE_KERNEL_OBJECT,
+                        },
+                        SECURITY_ATTRIBUTES,
+                    },
+                    System::Threading::{CreateMutexExW, WaitForSingleObject},
+                },
+            };
+            if !current_process_is_local_system()
+                || expected_owner == [0; 32]
+                || token_sid_digest(owner_token) != Some(expected_owner)
+            {
+                return None;
+            }
+            let runtime = token_sid_for_handle(owner_token)?;
+            let mut sid_text = PWSTR::null();
+            // SAFETY: runtime holds a validated SID; the returned string is LocalAlloc-owned.
+            unsafe { ConvertSidToStringSidW(runtime.as_psid(), &mut sid_text) }.ok()?;
+            // SAFETY: successful conversion returns a terminated UTF-16 SID string.
+            let sid = unsafe { sid_text.to_string() };
+            // SAFETY: conversion allocated this string; the Rust copy no longer borrows it.
+            unsafe { LocalFree(Some(HLOCAL(sid_text.0.cast()))) };
+            let sid = sid.ok()?;
+            // Source candidate: SYSTEM full, Administrators read/synchronize,
+            // designated runtime read/synchronize/modify-state. Never default DACL.
+            let sddl = format!(
+                "O:SYG:SYD:P(A;;0x001f0001;;;SY)(A;;0x00120000;;;BA)(A;;0x00120001;;;{sid})"
+            )
+            .encode_utf16()
+            .chain(Some(0))
+            .collect::<Vec<_>>();
+            let mut descriptor = PSECURITY_DESCRIPTOR::default();
+            // SAFETY: terminated local SDDL and valid output pointer; freed after creation.
+            unsafe {
+                ConvertStringSecurityDescriptorToSecurityDescriptorW(
+                    PCWSTR(sddl.as_ptr()),
+                    1,
+                    &mut descriptor,
+                    None,
+                )
+            }
+            .ok()?;
+            let attributes = SECURITY_ATTRIBUTES {
+                nLength: size_of::<SECURITY_ATTRIBUTES>() as u32,
+                lpSecurityDescriptor: descriptor.0,
+                bInheritHandle: false.into(),
+            };
+            // SAFETY: descriptor remains live for this call; no initial ownership is requested.
+            let opened = unsafe {
+                CreateMutexExW(
+                    Some(&attributes),
+                    w!("Global\\DisplayDeck.MaintenanceMutation.v1"),
+                    0,
+                    0x00120001,
+                )
+            };
+            // SAFETY: conversion returned LocalAlloc-owned descriptor, no longer borrowed.
+            unsafe { LocalFree(Some(HLOCAL(descriptor.0))) };
+            let handle = HeldHandle(opened.ok()?);
+            // CreateMutexEx ignores supplied security when the object already exists.
+            if !exact_object_security(
+                handle.0,
+                &runtime,
+                SE_KERNEL_OBJECT,
+                [0x001f0001, 0x00120000, 0x00120001],
+            ) {
+                return None;
+            }
+            // SAFETY: live mutex handle with SYNCHRONIZE; zero timeout never waits.
+            let wait = unsafe { WaitForSingleObject(handle.0, 0) };
+            let clean_acquisition = super::gate_wait_ownership(wait.0)?;
+            let guard = Self {
+                handle,
+                _thread: std::marker::PhantomData,
+            };
+            // Abandoned grants ownership but is NOT permission to proceed.
+            // Drop releases that ownership. Recovery inspection is future work.
+            if !clean_acquisition
+                || !exact_object_security(
+                    guard.handle.0,
+                    &runtime,
+                    SE_KERNEL_OBJECT,
+                    [0x001f0001, 0x00120000, 0x00120001],
+                )
+            {
+                return None;
+            }
+            Some(guard)
+        }
+    }
+
+    impl Drop for ProvisionMachineGate {
+        fn drop(&mut self) {
+            // SAFETY: the !Send guard owns this mutex on the acquiring thread.
+            // A failure leaves ownership until thread exit; it never authorizes work.
+            let _ = unsafe { windows::Win32::System::Threading::ReleaseMutex(self.handle.0) };
+        }
+    }
+
     // A retained read-only observation, NOT a fresh-create/write grant. Absence can
-    // race until a proven machine gate and exclusive CREATE_NEW are connected.
+    // race with non-cooperating writers: the gate does not replace exclusive CREATE_NEW.
     pub(crate) struct FreshProvisionObservation {
         directory: MachineDirectoryAnchor,
     }
 
     impl FreshProvisionObservation {
-        pub(crate) fn observe(owner_token: HANDLE, expected_owner: [u8; 32]) -> Option<Self> {
+        pub(crate) fn observe(
+            _gate: &ProvisionMachineGate,
+            owner_token: HANDLE,
+            expected_owner: [u8; 32],
+        ) -> Option<Self> {
             if !current_process_is_local_system()
                 || expected_owner == [0; 32]
                 || token_sid_digest(owner_token) != Some(expected_owner)
@@ -1129,6 +1256,20 @@ mod platform {
     }
 
     fn dacl_matches(handle: HANDLE, runtime: &TokenSid, runtime_mask: u32) -> bool {
+        exact_object_security(
+            handle,
+            runtime,
+            SE_FILE_OBJECT,
+            [SYSTEM_FULL, ADMIN_READ, runtime_mask],
+        )
+    }
+
+    fn exact_object_security(
+        handle: HANDLE,
+        runtime: &TokenSid,
+        kind: windows::Win32::Security::Authorization::SE_OBJECT_TYPE,
+        masks: [u32; 3],
+    ) -> bool {
         let mut owner = PSID::default();
         let mut dacl = ptr::null_mut();
         let mut descriptor = PSECURITY_DESCRIPTOR::default();
@@ -1136,7 +1277,7 @@ mod platform {
         let result = unsafe {
             GetSecurityInfo(
                 handle,
-                SE_FILE_OBJECT,
+                kind,
                 OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION,
                 Some(&mut owner),
                 None,
@@ -1187,9 +1328,9 @@ mod platform {
                 return None;
             }
             let expected = [
-                (system.as_psid(), SYSTEM_FULL),
-                (admins.as_psid(), ADMIN_READ),
-                (runtime.as_psid(), runtime_mask),
+                (system.as_psid(), masks[0]),
+                (admins.as_psid(), masks[1]),
+                (runtime.as_psid(), masks[2]),
             ];
             let acl_bytes = usize::try_from(info.AclBytesInUse).ok()?;
             let sid_offset = std::mem::offset_of!(ACCESS_ALLOWED_ACE, SidStart);
@@ -1365,6 +1506,7 @@ mod platform {
 
     #[cfg(test)]
     mod tests {
+
         use super::*;
 
         #[test]
@@ -1427,7 +1569,9 @@ mod platform {
 }
 
 #[cfg(target_os = "windows")]
-pub(crate) use platform::{FreshProvisionObservation, InstallFileEvidence, ProtectedInstall};
+pub(crate) use platform::{
+    FreshProvisionObservation, InstallFileEvidence, ProtectedInstall, ProvisionMachineGate,
+};
 
 #[cfg(target_os = "windows")]
 pub(crate) fn current_process_is_local_system() -> bool {
@@ -1548,6 +1692,16 @@ pub fn inspect_machine_actor_storage() -> D07StorageVerdict {
 }
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn gate_wait_distinguishes_abandoned_ownership_from_permission() {
+        assert_eq!(super::gate_wait_ownership(0), Some(true));
+        // Must release ownership, but must not inspect/create as a clean acquisition.
+        assert_eq!(super::gate_wait_ownership(0x80), Some(false));
+        for status in [0x102, u32::MAX, 1, 0x81] {
+            assert_eq!(super::gate_wait_ownership(status), None);
+        }
+    }
+
     use super::*;
 
     #[test]

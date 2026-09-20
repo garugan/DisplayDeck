@@ -606,3 +606,19 @@ checkpoint前のexisting target、checkpoint後のmissing/unreadable/wrong-ID ta
 17 local unit tests + fake actor process 1件がPASS。追加contractではMAP 6状態×target 7観測の42組（10 accepted structural pairs）を走査し、wrong ID、partial/fresh/failed evidence、resident active改変とoverwritten historyのepoch矛盾も拒否する。format、Windows all-targets offline cross-check、diff whitespace checkがPASS。fixture原本・release 01は変更していない。
 
 全分類はdiagnostic evidenceだけで、next-write token、retry/repair/cleanup、install成功を発行しない。sourceはservice/Windows writerへ未接続であり、machine gate、loaded-image/manifest/boot/actor authority、actual handle/DACL、durable checkpoint/package completionの検証が必要な点は変わらない。pin zeroとserviceの最終拒否を維持し、Windows操作・machine-data write・display APIは実行していない。
+
+### 9.17 M1 machine gate source connection（2026-09-21）
+
+状態: `MACHINE_GATE_SOURCE_CONNECTED / WINDOWS_UNTESTED / PROVISION_GRANT_DENIED`
+
+`manifest_authority_handshake`のpackage検証後、fresh absence観測前に`Global\DisplayDeck.MaintenanceMutation.v1`を取得し、service invocationが終わるまでthread-bound guardで保持する。Windows mutexはthread所有なのでguardはSend / Sync不可。`FreshProvisionObservation::observe`はgate参照を必須とし、無gateの呼出しを除いた。現在のzero pinではこの経路に到達せず、最終`PROVISION_ANCHOR_NOT_IMPLEMENTED`も維持する。
+
+source candidate SDDLは`O:SYG:SYD:P(A;;0x001f0001;;;SY)(A;;0x00120000;;;BA)(A;;0x00120001;;;<designated-runtime-SID>)`。SIDはWTS tokenから取得する。SYSTEM full、Administrators read-control / synchronize、designated runtime read-control / synchronize / modify-state。継承handleなし。mutex取得handleにはread-control / synchronize / modify-stateだけ要求する。default DACLを使用しない。
+
+既存fileのexact owner/DACL検査をobject kindとmaskの引数化だけで共用し、mutexでは`SE_KERNEL_OBJECT`を用いる。作成済みmutexは作成時SDDLを無視するため、SYSTEM owner・protected DACL・3 ACEの順序 / trustee / maskを同じhandleでwait前後に検証する。既存file側のmask / 判定は変更しない。0ms waitでbusy / failed / unknownは拒否。abandonedは所有権を得ても進行許可にせず、guardでreleaseして拒否する。abandoned recovery inspectionは未接続。
+
+Microsoft一次資料: [CreateMutexExW](https://learn.microsoft.com/en-us/windows/win32/api/synchapi/nf-synchapi-createmutexexw)、[同期objectの権限](https://learn.microsoft.com/en-us/windows/win32/sync/synchronization-object-security-and-access-rights)。これはsource candidateであり、exact SDDLの実機適合・standard-user権限・他session競合の承認/実証ではない。
+
+検証: 18 unit tests + 1 fake process test PASS、Windows all-targets offline locked cross-check PASS、format / diff check PASS。Windows APIは実行していない。unit追加はclean / abandoned所有権 / timeout / failure / unknownの区別。WindowsのACL readback、mutex競合・abandoned・thread ownershipはGate B前にrecordする実機検証項目として残る。
+
+次はcreator用directory / recordのexclusive createとCandidate 04 publicationの接続。loaded-image proof、external manifest pin / certificate policy、durabilityは未完了であり、gate取得をwrite grant・M1完了・Gate B readinessに昇格しない。
