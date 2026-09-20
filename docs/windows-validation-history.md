@@ -1,5 +1,36 @@
 # DisplayDeck Windows検証履歴・手順書
 
+## v0.1.0 RC再固定：既存Installerの確認（2026-09-21）
+
+現行の次のWindows操作は、このハッシュ確認だけです。実施前に本手順をcommit・pushします。build / install / launchは行いません。
+
+履歴上のqualified artifactは`3307DB604C5C96B4E753D499ECB006E2209695006965F9BA7D65A1BF6F1EFD2F`（2,160,426 bytes、製品source `e598cc4`）。`3843A1B35FB9EB39A220E9E3305A7822284E78B870CCD7CA62C1C4DD7CA3BCFB`は修正前にStage 3が停止した旧RCであり、検証済みとして採用しません。
+
+```powershell
+$ErrorActionPreference = 'Stop'
+$installerPath = 'D:\project\displaydeck\target\release\bundle\nsis\DisplayDeck_0.1.0_x64-setup.exe'
+if (-not (Test-Path -LiteralPath $installerPath -PathType Leaf)) {
+    throw 'Installer missing. Stop; do not rebuild.'
+}
+$installer = Get-Item -LiteralPath $installerPath
+$hash = (Get-FileHash -LiteralPath $installer.FullName -Algorithm SHA256).Hash
+[PSCustomObject]@{
+    FullName = $installer.FullName
+    Length = $installer.Length
+    SHA256 = $hash
+} | Format-List
+if ($hash -ne '3307DB604C5C96B4E753D499ECB006E2209695006965F9BA7D65A1BF6F1EFD2F' -or $installer.Length -ne 2160426) {
+    throw 'Qualified artifact mismatch. Stop; preserve this file.'
+}
+```
+
+続行条件: path / size / SHA256が取得でき、上記のqualified artifactと一致する。結果を記録し、この既存Installerを再buildせずRC固定・最終Smoke Testへ進める。
+
+停止条件: 不在、読み取り失敗、size / SHA不一致。元ファイルを保存し、ソース固定と固有RC名を含む再生成コマンドを先に記録する。不一致を理由にその場でbuildしない。旧RCしかない場合も過去のPASSを転用しない。
+
+macOSのrepository / Downloads / Desktopを2026-09-21に検索した範囲ではInstallerなし。Windows上の存在・SHAは未確認。
+
+
 read-only CLIのStep 1〜9、Stage 1 / 3のWindows実機確認、Gate C artifact確認を保存する詳細文書です。完了済み手順は履歴であり、再実行は不要です。
 
 この文書は、Step 1〜8のdisplay probe、最短roadmap、Stage 1 executable確認、Stage 3 NSIS確認、Gate C artifact / 承認記録の順に並んでいます。現在の製品状態と通常のbuild方法は[`README`](../README.md)を参照してください。

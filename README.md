@@ -15,6 +15,8 @@ Display設定変更、Apply / Restore、WAL、crash recovery、watchdog、mutati
 
 現行のチェックリストは[実装計画のv0.1.0 Release / v0.2 Mutation](docs/implementation-plan.md#v010-release)で管理します。v0.1.0はRC固定、Installer SHA256固定、最終Smoke Test、証跡更新、Gate C判定、Releaseを未完了として追跡します。v0.2 Mutationは別トラックです。
 
+次の操作: [Windows上の既存Installerの所在・SHA256確認](docs/windows-validation-history.md#v010-rc再固定既存installerの確認2026-09-21)。一致すれば再buildせず最終RCに使用します。
+
 ## 過去のrelease 01検証・承認記録
 
 - release 01はGate C承認済み、read-only MVP完成（現行チェックリストの完了を意味しない）

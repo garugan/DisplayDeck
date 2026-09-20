@@ -17,6 +17,35 @@ Display設定変更、Apply / Restore、WAL、crash recovery、watchdog、mutati
 - [ ] Gate C判定
 - [ ] Release
 
+## Gate C — v0.1.0 Release
+
+必須:
+
+- Build成功、Installer生成成功（既存Installerを再利用する場合は、そのartifactに対応する既存証跡を使う）
+- Release CandidateとInstaller SHA256の固定
+- clean install成功、read-only起動成功、diagnostic取得成功
+- Display設定への副作用なし、uninstall成功
+- release artifactと検証artifactが同一
+
+対象外: Display mutation、Restore、WAL、crash recovery、Watchdog、Gate B。Gate BはこのGate Cの前提条件ではない。
+
+RCの実体を確認してから固定し、一致する既存Installerがあれば再buildしない。不在・不一致時のみ、read-onlyソースcommitを固定してbuild → installer生成 → 即SHA256取得を1回のRC作成として扱う。RCには固有名を付け、上書きしない。固定後のbuildは禁止し、修正が必要なら別RCとして最初から扱う。現在のHEADには将来のmutation開発資産も含まれるため、再生成時の製品ソースは別途特定し、HEADを自動採用しない。
+
+最終確認は[10項目のSmoke Test](release/v0.1.0-smoke-test.md)だけとし、590ケース等の再実行は不要。Windows操作は[検証履歴の現行手順](windows-validation-history.md#v010-rc再固定既存installerの確認2026-09-21)に従う。
+
+最終RCから次の1組を作る。実体未確認のSHAや過去のmanifestを流用しない。
+
+```text
+release/v0.1.0/
+  DisplayDeck_0.1.0_x64-setup.exe
+  SHA256SUMS.txt
+  release-manifest.json
+  smoke-test.md
+  RELEASE_NOTES.md
+```
+
+manifestには製品source commit、RC識別子、artifact名・size・SHA256、build証跡、Smoke Test証跡、検証cell、Gate C判定を記録する。RCからrelease名へコピーする場合もコピー前後のSHA256一致を確認する。Gate C承認後、製品sourceと証跡の対応が明確なrelease commitへ`git tag v0.1.0 <release-commit>`を付ける。既存tagは上書きしない。v0.1.0を閉じてからv0.2 Mutationへ進む。public distributionやsupport cell拡大はこの手順には含めない。
+
 ## v0.2 Mutation
 
 - [ ] Display mode変更
