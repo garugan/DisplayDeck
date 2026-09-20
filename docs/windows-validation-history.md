@@ -28,7 +28,29 @@ if ($hash -ne '3307DB604C5C96B4E753D499ECB006E2209695006965F9BA7D65A1BF6F1EFD2F'
 
 停止条件: 不在、読み取り失敗、size / SHA不一致。元ファイルを保存し、ソース固定と固有RC名を含む再生成コマンドを先に記録する。不一致を理由にその場でbuildしない。旧RCしかない場合も過去のPASSを転用しない。
 
-macOSのrepository / Downloads / Desktopを2026-09-21に検索した範囲ではInstallerなし。Windows上の存在・SHAは未確認。
+macOSのrepository / Downloads / Desktopを2026-09-21に検索した範囲ではInstallerなし。
+
+### 既存Installer確認結果とパス再確認
+
+operator報告: Length `2158751`、SHA256 `8DE2D72C5DF77A6ABA7FBDFE7555BEE1CB879A1996567E34A9FE7947D262B7C3`。qualified artifactと不一致のため停止。RCは未固定で、build・Smoke Testは未実施。
+
+貼付されたpathは`D:\project\displaydeck\target\release\bundle\nsis\DisplayDeck\_0.1.0\_x64-setup.exe`で、正規名`DisplayDeck_0.1.0_x64-setup.exe`と異なる。転記時のescapeか実際の別pathかは未確認。不一致ファイルを削除・上書きせず、次のread-only操作でbundle/nsis内のexeを列挙してhashを確認する。本手順をcommit・push後に実施する。
+
+```powershell
+$ErrorActionPreference = 'Stop'
+$bundleDir = 'D:\project\displaydeck\target\release\bundle\nsis'
+$files = @(Get-ChildItem -LiteralPath $bundleDir -Filter '*.exe' -File -Recurse)
+if ($files.Count -eq 0) { throw 'No installer found. Stop; do not rebuild.' }
+$files | ForEach-Object {
+    [PSCustomObject]@{
+        FullName = $_.FullName
+        Length = $_.Length
+        SHA256 = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash
+    }
+} | Format-List
+```
+
+続行条件: 列挙が成功したら全結果を共有する。size `2160426` / SHA `3307DB604C5C96B4E753D499ECB006E2209695006965F9BA7D65A1BF6F1EFD2F`のファイルがあれば再利用対象とする。なければ既存qualified artifact未発見として再生成手順の準備へ進む。読み取り失敗・不在時はエラーを共有して停止する。この操作ではbuild・install・ファイル変更を行わない。
 
 
 read-only CLIのStep 1〜9、Stage 1 / 3のWindows実機確認、Gate C artifact確認を保存する詳細文書です。完了済み手順は履歴であり、再実行は不要です。
