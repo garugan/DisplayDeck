@@ -1,8 +1,40 @@
 # DisplayDeck 最短実装計画
 
-最終更新: 2026-08-30
+## 現行リリース範囲（2026-09-21 owner指定）
 
-状態: Gate A、Stage 1、Gate B No-Go、Stage 3、Gate Cが完了した。SHA-256 `3307DB604C5C96B4E753D499ECB006E2209695006965F9BA7D65A1BF6F1EFD2F`のDisplayDeck 0.1.0 NSIS packageを、記録済みWindows 10 exact cell限定のread-only MVPとして完成・release扱いにした。display mutation、actual machine-dataへの書込み、永続変更、multi-display mutation、Windows 11 / 他cellのsupport claim、署名、auto-update、public distributionは不可である。
+v0.1.0の目的は、Windowsのディスプレイ構成・現在の表示モードを安全に取得し、診断情報として確認・出力できるread-onlyアプリの提供である。完成条件はDisplay列挙、現在モード取得、read-only UI、diagnostic JSON、fail-closed、Installer、uninstallとする。
+
+Display設定変更、Apply / Restore、WAL、crash recovery、watchdog、mutation safety、Gate Bはv0.2以降へ分離し、v0.1.0の完成条件やリリースの依存関係に含めない。v0.2以降の実施・リリースをこの範囲指定だけで承認したものではない。
+
+以下の旧MVP定義・Stage・承認記録は履歴として保持する。mutation項目は今後v0.2以降の設計として参照し、v0.1.0の範囲には本節を優先する。qualified release 01のartifactと検証範囲は変更しない。
+
+## v0.1.0 Release
+
+- [ ] Release Candidateを固定
+- [ ] Installer SHA256固定
+- [ ] 最終Smoke Test
+- [ ] 証跡更新
+- [ ] Gate C判定
+- [ ] Release
+
+## v0.2 Mutation
+
+- [ ] Display mode変更
+- [ ] Restore
+- [ ] WAL
+- [ ] crash recovery
+- [ ] watchdog
+- [ ] Directory Anchor
+- [ ] Gate B
+- [ ] Mutation実機試験
+
+このチェックリストを現行の進捗管理の正本とする。過去のrelease 01承認やfake実装の実績から自動的に完了扱いにはしない。v0.2の完了はv0.1.0 Releaseの前提ではない。項目の並びは実行順序や実行許可を意味せず、mutation実機操作には従来どおり事前のGate B承認が必要である。
+
+---
+
+以下は過去の計画・承認記録（最終更新: 2026-08-30）。
+
+状態: Gate A、Stage 1、Gate B No-Go、Stage 3、Gate Cが完了した。SHA-256 `3307DB604C5C96B4E753D499ECB006E2209695006965F9BA7D65A1BF6F1EFD2F`のDisplayDeck 0.1.0 NSIS packageを、記録済みWindows 10 exact cell限定のread-only MVPとして完成・release扱いにした。2026-08-30に`GATE-A-MUTATION-ADDENDUM-01`が承認され、9章のM1〜M3 source/config/test変更とnon-mutating build/testを開始した。Windows provision/install、actual machine-data write、D07/D08実行、display API、display切断、Gate B/M4、releaseは未許可である。
 
 ## 1. 完成の定義
 
@@ -245,4 +277,285 @@ G1A、DD-FR-002 freeze、Phase 2A開始、G2A、UI開始、read-only統合開始
 
 ## 8. 次の一手
 
-Gate C release 01の承認によりread-only MVPは完成した。現在の必須作業はない。artifactまたは製品sourceを変更するときだけ新しいcandidateを作る。追加Windows操作、build、install、D08測定、fixture再検証、別evidence bundle、D07、display mutationは行わない。
+Gate C release 01のread-only MVPは完成済みである。`GATE-A-MUTATION-ADDENDUM-01`に従いM1〜M3を実装し、new candidateのnon-mutating test/buildまで進める。Windows operator action、provision/install、actual machine-data write、D07/D08、display API、display切断、Gate B/M4は引き続き行わない。
+
+### M1の実呼出経路と実装順（2026-09-08）
+
+確認済みのsource経路は、serviceの`provision_handshake` → identity/token検証 → `manifest_authority_handshake` → package検証 → `FreshProvisionObservation` → 無条件の`PROVISION_ANCHOR_NOT_IMPLEMENTED`である。publisher/manifest pinがzeroの現candidateはpackage検証以前に拒否する。Candidate 04の分類器はtestと公開exportにとどまり、service/writerからの呼出しはない。分類器やtest件数の追加だけをM1完了への接続と数えない。
+
+次は下表の順で、既存serviceとstorage実装へ接続する。別の汎用backendや未接続の検証器を先に増やさない。
+
+| 順序 | 未完成の実経路 | 次の実装単位・確認条件 |
+| --- | --- | --- |
+| 1 | machine-wide gateなしでfresh不存在を観測している | `manifest_authority_handshake`で固定名gateを観測前に取得し、同じinvocation中保持するsource candidate。owner/principal/SDDLを明示し、busy、abandoned、security不明では先へ進めない。現行zero pinと最終denyは維持する |
+| 2 | process名とopened actor bytesだけで、起動元の同一性が未証明 | R1 coordinator→SCM→serviceの起動経路と保持package handlesを結び、loaded-image/launch provenanceを証明する。path文字列一致をgrantにしない |
+| 3 | 既存のprotected directoryしか扱えず、初期作成・writerがない | SYSTEM専用のdirectory/record初期作成、exclusive create、actual identity/DACL再検証、one-use grant、Candidate 04のpublication/readbackを同じ経路へ接続する。既存MAP/MAR decoderとcrash-pair分類を再利用し、collision/途中失敗で既存証拠を上書き・削除しない |
+
+各単位は既存Rust testでreject時の後続処理0件と保持・解放条件を確認し、format/test/Windows cross-compileだけを行う。M1完了は9.3の条件で判断し、その後にM2のtest storage置換へ進む。
+
+未決事項はsource作業と分離する。exact named-object securityとstandard-user feasibilityはarchitecture 19.2の人間判断・Windows evidence対象、external manifest pinの非循環binding、実certificate、timestamp/revocation、実install ACL適合はQ04/qualification対象として残す。これらを推測で確定せず、証明が揃うまでgrantはdenyする。ただしzero pinやWindows未実行を理由に、承認済みsource candidateの実装まで止めたりR1/R2の再承認を求めたりはしない。
+
+## 9. Read-onlyから最初の実解像度変更までの再開案
+
+### 9.1 到達点と境界
+
+到達点は、専用labの一つのapproved exact cellで、read-only列挙から選ばれた一つの完全なresolution tupleをprofileへ保存せず一時適用し、fresh GDI/CCD readbackで意図したtargetだけが変わったことを確認し、manual Revertと15秒timeoutでC0へexact復元できることである。幅、高さ、refresh、Win32 flagをReactやoperator入力から合成しない。
+
+この到達点はcontrolled mutation qualificationであり、mutation版releaseではない。Gate C release 01のartifactとsupport claimは変更しない。永続変更、3-display構成でのmutation、multi-display、Windows 11、別GPU/driver/display、署名、auto-update、public distributionは含めない。
+
+現在のGate C cellはactive pathが3本であり、そのままではmutation条件を満たさない。最初のrunには別途承認した単一active physical pathのcellを使う。現構成からdisplayを切断することは、この計画だけでは許可しない。
+
+```mermaid
+flowchart LR
+    R["release 01<br/>read-only"] --> A["Gate A record追補<br/>revised design + 実装許可"]
+    A --> M1["M1<br/>D07とprotected storage"]
+    M1 --> M2["M2<br/>production safety core"]
+    M2 --> M3["M3<br/>actual display worker + UI"]
+    M3 --> B["Gate B<br/>exact cell / exact resolution承認"]
+    B --> M4["M4<br/>controlled mutation qualification"]
+```
+
+新しいgateは作らない。Gate Aの同じrecordを追補し、Gate Bを新candidateのexact run recordとして更新する。mutation packageをreleaseする場合だけ、M4完了後にGate Cの新しいrelease recordを作る。
+
+### 9.2 Gate A record追補: 一括設計・実装判断
+
+次を一つの判断にまとめ、承認前はsourceを変更しない。
+
+- 初回はsession-only Keepとし、P0を変更しない。
+- 初回はGDI `ChangeDisplaySettingsExW`の`CDS_TEST`、flag 0 dynamic apply、captured C0 exact restoreと、GDI/CCD fresh readbackを使う。`CDS_UPDATEREGISTRY`、`SDC_SAVE_TO_DATABASE`、`SetDisplayConfig` applyは使わない。
+- Keep受付はverified readbackをdurable化した`t0`から15秒、watchdog単独lossはfenced takeover、Tauri coreとwatchdogの同時lossは15秒保証外とする。
+- Revertを初期focusとし、Keepのglobal/default shortcutを作らない。
+- 初回cell、actual resolution tuple、blind recoveryはread-only capture後にGate Bでexact固定する。値を事前に推測しない。
+- M1〜M3のapplication/native/config/test変更と非変更build/testを許可するかを明記する。Windows actual machine-data write、`CDS_TEST`、dynamic applyはまだ許可しない。
+
+### 9.3 M1: D07とprotected storageを成立させる
+
+現在の`inspect_machine_actor_storage`は`DirectoryAnchorUnproven`を返し、runtime engineはtemporary test directoryしか使わない。ここを最初に閉じる。
+
+1. D07の各sub-predicateをside-effect 0のbounded diagnosticとして分け、root open、volume、reparse、direct-child、file ID、stream、attribute、DACLのどこでNo-Goになったかを固定codeで特定する。最終判定を緩めるためのfallback pathは作らない。
+2. documented handle/APIだけでProgramData配下をanchorし、relative openでdirectory、ProvisionRecord、MachineActorRecordを保持する。path文字列の再openをwrite authorityにせず、write直前に同じhandleのvolume/file ID/DACL/attributeを再検証する。
+3. SYSTEMだけが初期作成できる一回のprovision pathでfixed-size file、owner、protected DACL、separate ProvisionRecordを作る。standard-user runtimeはdesignated SIDに許したexact slot writeだけを行う。current-user read-only installerを暗黙にper-machine mutation installerへ昇格しない。
+4. reparse、hardlink、ADS、non-fixed/non-NTFS、ACL inheritance、別SID、file replacement、sharing violationをNo-Goにする最小unit/process testを既存Rust testへ追加する。
+5. D07用のprovision/inspect commandとstop/continue条件をcode review可能な形にする。実機ではまだ実行せず、Gate B recordがこのexact cellのactual machine-data writeを許可した後に`docs/windows-validation-history.md`へ転記し、`README.md`へ短いpointerだけを置き、commit/pushしてから一度実行する。
+
+M1実装完了条件は、non-mutating unit/process testで全predicate、revalidation、No-Go side-effect 0を確認し、actual Windows commandが未実行であること。実機D07の完了条件はGate Bの最初のconditional stepで、全predicateのreadback後に`GO`となり、なお`MutationAuthorized: false`であること。どれか一つでもunprovenならGate Bはその場でNo-Goとなる。
+
+### 9.4 M2: fake safety coreをproduction transactionへ置き換える
+
+既存のReact、typed command、独立actor process、one-shot child、CSPRNG token、`GetTickCount64`、DecisionJournal/WALのtest codeは再利用する。別framework、generic backend interface、新dependencyは追加しない。
+
+実装するもの:
+
+- Candidate 04のcanonical wire、dual-slot publication/readback、MachineActorRecord、owner WAL、DecisionJournalをactual D07 handlesへ接続する。`create_test_storage`とtemporary directoryをproduction authorityに使わない。
+- machine-wide gate → per-display lock → per-user/logon recovery lockの順序、bootId、owner SID/logon、epoch、leaseVersion、generation、actor/process identity、one-use GOを実装する。
+- worker roleを`inspect`、`capture-baseline`、`preflight`、`temporary-apply`、`readback`、`restore-current`へ分け、各processを1 role / 1 operationで終了させる。旧worker exit未証明なら次workerを出さない。
+- parent EOF、worker crash/hang、presentation timeout、session change、stale command、watchdog loss/takeover、startup recoveryを既存state machineへ接続する。
+- MachineActor `ACTIVE_INTENT`をowner WAL `PREPARED`より先に、`TERMINAL_CLEAN`をowner terminalと全actor quiescenceより後にdurable化する。
+
+M2ではdisplay APIを呼ばない。完了条件は、既存6 safety contractに加え、production wire/lock/actor faultをfake display operationで検査し、全reject caseのdisplay call countが0、valid fake Keep/Revertだけがterminalへ到達すること。
+
+### 9.5 M3: actual resolution backendと最小UIを接続する
+
+最初のactual backendは既存`display-probe`と`windows = 0.62.2`だけで作る。
+
+1. fresh enumerationでsingle path、local console、single interactive user、exact GPU/driver/display/connection、HDR off、C0/P0、候補tuple、exact CCD expected observationを再解決する。
+2. 初回Gate B candidateは、read-only captureに存在する一つの完全なresolution tupleだけに絞る。現在hard-codeされている同一解像度の144 Hz→60 Hz候補は「解像度変更」の合格証拠に使わない。
+3. worker内の小さいWin32 boundaryで、列挙由来`DEVMODEW`に対する`CDS_TEST`、flag 0 temporary apply、captured C0のflag 0 exact restoreを実装する。API returnだけで成功にせず、別workerのfresh GDI/CCD readbackで確定する。
+4. `begin_display_change`を`{snapshotRevision, monitorToken, modeToken}`へ戻し、Reactからsimulation flag、duration、width、height、refresh、device path、raw flagを受け取らない。
+5. UIはqualified candidateを一つ選ぶ最小select、Apply、pre-rendered confirmation overlay、Revert/Keepだけを追加する。`mutationAllowed`はD07/D08、exact cell、storage、locks、watchdog readinessが全て成立したときだけtrueにする。
+
+M3完了時点でもlive callは行わない。非Windows/unit testではrecorded observationとfake FFI resultを使い、preflight/apply/readback/restoreの順序、mismatch時のRevert、stale token拒否を一つずつ確認する。source/artifactが変わるため新candidateとして扱い、release 01 artifactを上書きしない。
+
+### 9.6 Gate BとM4: controlled mutation qualification
+
+Gate B recordは一つだけ作り、次をexactに固定する。
+
+- new candidateのcommit、package path、size、SHA-256
+- Windows edition/build/x64、GPU/driver、physical display/connection、local console、active path=1、HDR off
+- C0/P0と、列挙済みの一つの異なるresolution tuple、expected GDI/CCD observation
+- protected storage provision/D07/D08のexact commandとstop/continue条件、全M2/M3自動test結果。実機結果は同じGate B recordへ追記し、別gateを作らない
+- `CDS_TEST`とflag 0 temporary applyを含むexact transition一件の承認
+- blind recovery、out-of-band capture、Operator、Evidence Owner、実行日
+
+Windows runは記録済みcommandの順にだけ行う。
+
+1. package/protected storageを作り、D07/D08を再読する。No-Goならdisplay call 0件で停止する。
+2. appを起動し、fresh snapshot、target、C0/P0、candidate、expected observation、presentation readinessを照合する。不一致なら停止する。
+3. 一回目はtemporary apply → exact readback → manual Revert → C0 exact readbackを確認する。
+4. 二回目はtemporary apply → 操作しない → 15秒timeout → C0 exact readbackを確認する。
+5. Tauri/WebView終了、worker failure、watchdog lossは既存Stage 2の各caseを一回ずつ確認する。旧workerがquiescentでなければ並行restoreせずblockedを記録する。
+6. 最後にKeepを一回確認し、Rがexact、P0が不変、durable `KEPT_SESSION` readback前にReact successが出ないことを確認する。
+
+完了条件:
+
+- intended targetのresolutionだけがexact tupleへ変わり、fresh GDI/CCD readbackがexpected observationと一致する。
+- manual Revert、timeout、未承認parent lossでC0へexact復元する。
+- P0、別target、HDR/color/policy fieldが変わらない。
+- rollback failure、別target変更、P0 drift、readback unknown、worker exit未確認での並行callが0件である。
+
+一件でも満たさなければそのcellはNo-Goとし、evidenceを保持してread-onlyへ戻す。M4完了は「実解像度変更がcontrolled labで成立」の到達点であり、一般ユーザー向けApply有効化やmutation版Gate C releaseは別作業である。
+
+### 9.7 主な変更箇所
+
+| 現在のgap | 最小変更先 |
+| --- | --- |
+| D07がcoarse No-Go、actual storage未接続 | `native/displaydeck-safety/src/machine_storage.rs`と既存evidence command |
+| fake operation/test storageだけ | `engine.rs`、`journal.rs`、`wal.rs`、`protocol.rs`、`displaydeck_actor.rs` |
+| exact read-only bindingだけでdisplay APIなし | `native/display-probe/src/mutation.rs` |
+| simulation DTO、Apply disabled | `src-tauri/src/lib.rs`、`src/services/tauriApi.ts`、`src/App.tsx` |
+| current-user read-only package | 既存Tauri/NSIS configへprotected provisionに必要な最小差分だけ。release 01は変更しない |
+
+新しいcrate、npm package、常駐service、別service binary、汎用plugin systemは追加しない。R1で承認された既存actor imageの一時SCM registrationだけを例外とする。既存dependencyでdocumented Windows APIを表現できないことがcompile evidenceで判明した場合だけ、Gate A recordへ差分を戻す。
+
+### 9.8 Gate A mutation-track追補記録
+
+状態: `APPROVED / IMPLEMENTATION_AUTHORIZED`
+
+Record ID: `GATE-A-MUTATION-ADDENDUM-01`
+
+承認日: 2026-08-30
+
+承認者: human owner
+
+このrecordをhuman ownerが明示承認した場合だけ、9.1〜9.7をrevised designとして採用し、M1〜M3に必要なapplication/native/config/test変更と、display APIを実行しないformat、typecheck、unit/process test、non-mutating buildを許可する。既存dependencyと実装を再利用し、新dependency、別framework、汎用backend abstractionは追加しない。必要性がcompile evidenceで判明した場合は実装せず、このrecordへ戻す。
+
+この追補は、Windowsでのprovision/install、actual machine-data write、D07/D08実行、`CDS_TEST`、dynamic apply、display切断、single-pathへの物理再構成、release 01のrebuild/overwrite、Gate B/M4、mutation版releaseを許可しない。これらはexact command、cell、candidate、stop/continue条件を持つGate B recordの明示承認まで0件を維持する。
+
+承認時のexact statement:
+
+> `GATE-A-MUTATION-ADDENDUM-01`を承認し、9.1〜9.7をrevised designとして採用する。M1〜M3のsource/config/test変更とnon-mutating build/testを許可する。Windows provisioning、actual machine-data write、D07/D08、display API、display切断、Gate B/M4、releaseは許可しない。
+
+承認記録: 2026-08-30にhuman ownerが上記Record IDを明示して承認した。許可範囲と非許可範囲は上記statementのとおりであり、Gate B/M4のauthorityへ昇格しない。
+
+### 9.9 Implementation status after addendum approval
+
+2026-08-30のM1 non-mutating implementationで、D07のcoarse `DirectoryAnchorUnproven`をbounded fixed failure codeへ分解し、drive-letter absolute NT openをvolume GUID root + relative component handlesへ置き換えた。ProgramData ancestor、DisplayDeck directory、ProvisionRecord、MachineActorRecordのhandle/file ID/volume/direct-child chainを保持し、actor write前のsame-handle revalidationへ接続した。local unit/process testは10件PASSし、`x86_64-pc-windows-msvc --all-targets` compileもPASSした。Windows command、actual machine-data write、D07、display APIは0件である。
+
+この時点ではM1のSYSTEM provision executorは未実装であり、NSIS elevated administratorをSYSTEM creatorの代替にしなかった。one-shot service、scheduled task、その他のSYSTEM actor起動/identity proofの選択はinstaller privilege、crash recovery、cleanup、signed image identityを変えるため、次のR1でexact方式と非許可範囲を追補した。
+
+### 9.10 R1: one-shot LocalSystem service方式
+
+状態: `APPROVED / SOURCE_IMPLEMENTED / WINDOWS_EXECUTION_NOT_AUTHORIZED`
+
+Record ID: `GATE-A-MUTATION-ADDENDUM-01-R1`
+
+承認日: 2026-08-30
+
+承認者: human owner
+
+2026-08-30にhuman ownerがRecord IDとone-shot LocalSystem service方式を明示して承認した。先頭の`G`が脱落した入力は、直前に提示した唯一のR1 statementへの応答であるため、このRecord IDの承認として記録する。
+
+R1のexact方式:
+
+- 新しいbinaryや常駐serviceを作らず、packaged fixed pathの既存`displaydeck-actor`を再利用する。
+- elevated coordinator roleはdirect SCM APIだけを使い、fixed service name `DisplayDeckProvisionV1`、fixed argument `--provision-service`、`SERVICE_WIN32_OWN_PROCESS`、`SERVICE_DEMAND_START`、`SERVICE_ERROR_NORMAL`、LocalSystem account、dependencyなしで登録する。shell、PowerShell、frontend値、任意path/argumentは使わない。
+- 同名serviceが残っている場合、current actor absolute pathをquoteしたexact ImagePath、service type、start type、error control、LocalSystem、display name、dependencyなし、停止状態が全部一致するときだけ再利用する。unknown/mismatch/running stateではstart/delete/reconfigureせずblockedにする。
+- service roleはmain threadから直ちにSCM dispatcherへ接続し、control handlerとstatusを登録する。current process tokenがLocalSystemであること、active local console sessionがexactly one interactive userであること、`WTSQueryUserToken`からvalid designated runtime SIDを取得できることを確認し、user token handleを閉じる。
+- R1 handshake成功かつ`SERVICE_STOPPED`をreadbackした場合だけservice registrationを削除する。failure、timeout、unknown resultでは登録を残し、次回は上記exact identity checkから再開する。自動stop、未知serviceの削除、blind recreateは行わない。
+- R1 service bodyはprotected directory/fileをcreate/open-for-writeせず、ProvisionRecord/MachineActorRecordを変更せず、display APIを呼ばない。package manifest/signer/hash qualification、D07再検証後のactual provision state machine、durable terminal条件は後続M1としてfail-closedのまま残す。
+
+この承認はR1 source/config/test変更とdisplay-API-free unit/process test、Windows cross-compileだけを許可する。WindowsでのSCM登録/起動/削除、installer接続、actual provision、machine-data write、D07/D08、Gate B/M4、display API、releaseは許可しない。
+
+承認時のexact statement:
+
+> `GATE-A-MUTATION-ADDENDUM-01-R1` one-shot LocalSystem service方式を承認する。
+
+R1 implementation status:
+
+2026-08-30に、既存actorへfixed `--provision-handshake` coordinatorと`--provision-service` SCM roleを追加した。coordinatorはexact config/stopped-state照合後だけstartし、serviceはLocalSystem token、single active local console user、designated SID取得を検査する。成功したstopped readbackだけ登録を削除し、それ以外はfail closedで保持する。service bodyはidentity handshakeだけで、protected machine-data provisionとdisplay operationを持たない。
+
+新dependencyは追加せず、既存`windows = 0.62.2`のServices/RemoteDesktop featureだけを有効化した。local unit 10件とactor process 1件がPASSし、`x86_64-pc-windows-msvc --all-targets` cross-compileがwarning 0でPASSした。Windows SCM command、provision、machine-data write、D07/D08、display APIは0件である。次のM1 source taskはpackage manifest/signer/hash authorityとD07 same-handle revalidationへbindしたactual provision wire state machineであり、Windows実行は引き続きGate B待ちである。
+
+### 9.11 R2: detached signed provision manifest
+
+状態: `APPROVED / IMPLEMENTATION_AUTHORIZED / WINDOWS_EXECUTION_NOT_AUTHORIZED`
+
+Record ID: `GATE-A-MUTATION-ADDENDUM-01-R2`
+
+承認日: 2026-08-31
+
+承認者: human owner
+
+R1の次のsource taskを追跡した結果、Candidate 04の`MachineActorProvisionRecordV1` wire/state chainはそのまま再利用できる一方、state 1の`installerManifestDigest`へauthorityを与える署名者とmanifest形式が未決定だった。local hash、elevated coordinatorの申告、任意のWindows trusted publisher、unsigned NSISをauthorityにするとarchitectureのnonrecursive trust rootを満たさないため、actual provision writerはまだ実装しない。
+
+R2のexact方式は次で固定する。
+
+- protected per-machine install root内のfixed pathに、bounded UTF-8 JSON `DisplayDeckProvisionManifestV1`とdetached PKCS#7 signatureを置く。path、最大byte数、schema version、required field、field order、unknown field rejectionをsource constantにし、frontend、environment、command line、registryから受け取らない。
+- manifestはexact actor image SHA-256、Candidate 04 record/profile digests、fixed machine-data paths、package candidate IDを含む。serviceはopened manifest bytesのSHA-256をCandidate 04 `installerManifestDigest`へbindし、actor imageもopened-handle/readbackからexact照合する。
+- Windows native `CryptVerifyDetachedMessageSignature`でmanifest bytesとsignatureを検証してsigner certificateを取得し、`CertGetCertificateChain`と`CERT_CHAIN_POLICY_AUTHENTICODE`でchain/policyを検査し、`CERT_SHA256_HASH_PROP_ID`がGate B candidate recordで固定するsingle publisher certificate digestとexact一致するときだけ先へ進む。signature validだけ、chain validだけ、publisher名文字列一致だけでは許可しない。
+- R2 sourceではpublisher certificate digestをunset/zeroのfail-closed constantとして実装し、実署名、certificate選定、timestamp/revocation policy、manifest/package artifact生成、protected install、Windows verification実行は行わない。Gate B candidate recordがexact certificate digest、package/manifest hashes、cell、commands、stop/continue条件を固定するまでprovision grantは常にdenyとする。
+- 上記authority、LocalSystem identity、single active console user、machine gate、D07 same-handle revalidationが同じservice invocation内ですべて成立した場合だけ、後続のCandidate 04 provision state machineへgrantを一度渡す。どれかがunknown/mismatchならfile create/write/delete、SCM cleanup、display APIを0件にする。
+
+R2が許可するのは、manifestのstrict parser/hash binding、detached signature/pinned certificate verification、fail-closed provision grant、Candidate 04 wire/state transitionのsource/config/test変更と、display-API-free test/Windows cross-compileだけである。signing、package/manifest artifact生成、Windows SCM/provision、actual machine-data write、D07/D08、Gate B/M4、display API、releaseは許可しない。
+
+承認時のexact statement:
+
+> `GATE-A-MUTATION-ADDENDUM-01-R2` detached PKCS#7 manifest + pinned publisher certificate方式を承認する。
+
+承認記録: 2026-08-31にhuman ownerが上記Record IDと方式を明示承認した。許可範囲はsource/config/testとdisplay-API-free test/Windows cross-compileに限り、signing、artifact生成、Windows SCM/signature-verification/provision実行、actual machine-data write、D07/D08、Gate B/M4、display API、releaseへ昇格しない。
+
+### 9.12 R2 verification foundation status (2026-09-06)
+
+状態: `VERIFICATION_FOUNDATION_IMPLEMENTED / PROVISION_GRANT_DENIED / M1_INCOMPLETE`
+
+`provision_service.rs`にbounded canonical JSON parser、actor full-file SHA-256 binding、detached PKCS#7 single-signer verification、certificate SHA-256 pin照合、Code Signing usageとAuthenticode chain policyのsourceを実装した。manifestは4,096 bytes、signatureは65,536 bytes、actorは64 MiBを上限とする。field order、duplicate/unknown key、BOM、非canonical escape/whitespace、actor/profile/path mismatchをrejectする。manifestにはpackage candidate IDと32-character lowercase hexのinstaller transaction evidence IDを含む。新dependencyはなく、既存windows crateのCryptography featureだけを追加した。
+
+actor/manifest/signatureはread-only handleを保持し、concurrent write/delete openを拒否するshare modeで開く。file ID/volume/length、non-directory、non-reparse、single hardlinkを確認し、署名検証後も同じhandleでbytes/hashを再読する。この検証はprotected install parent-chain、loaded process image identity、D07初回作成anchorの証明を代替しない。現段階ではその証明とmachine gate、certificate lifecycle policy、actual provision writerが未接続で、証明書がvalidでもwrite grantを発行しない。
+
+publisher/manifest pinはともにzeroを維持する。coordinatorの公開entry pointはSCMを開く前に`PROVISION_MANIFEST_AUTHORITY_UNCONFIGURED`で終了し、service roleでも同じ未設定を拒否する。pinを将来変更しただけでも、残りのproofが未接続である限り最終拒否になる。manifestがactor full-file hashを含むため、そのmanifestの最終hashを同じactor image内に埋める方法は循環参照になる。現在のzero manifest constantは未設定sentinelだけであり、activation時のexternal manifest pin bindingはQ04に残す。未設定値を実値へ置換するだけで有効化できるとは扱わない。
+
+`provision.rs`へCandidate 04 MAPRV1のpure decoder/classifierを追加した。header、slotのsize/checksum、canonical payload、state/parity、resident predecessor hash、identity/nonce/owner/manifest binding、terminal carryを検査する。returned classificationはinternal structureだけを示し、actual file identity、署名authority、referenced MachineActor bytesを検証した証明でもwrite/cleanup grantでもない。
+
+実fixtureを使ったtestで`MAPRV1-P-STATE-06.bin`のprefix offset 120（file offset 8,312）がlinked clean versionを3から4へ変更することを検出した。architecture 19.2はstate 6でstate 5のexact clean link保持を要求するため、この原本はrejectする。fixture/generator/hash/indexは変更せず、test内のmemory copyだけをversion=3へ補正してinternal chainのpositive checkを行う。外部MARとのexact link照合は後続実装であり、この補正をqualified runtime evidenceへ昇格しない。
+
+確認結果: local unit 12件とfake actor process 1件がPASS。`cargo fmt --all -- --check`、`cargo check -p displaydeck-safety --all-targets --target x86_64-pc-windows-msvc --offline --locked`、`git diff --check`がPASS。WindowsでのCryptoAPI/SCM/provision、actual machine-data write、D07/D08、display API、署名/package生成は実行していない。
+
+次の許可済みM1 source作業は、protected install/process-image bindingとfresh-absence creator anchor、その後にMAR decoderとMAP/MAR exact-link/state publicationを接続すること。R2承認を再取得せず、M1〜M3 source実装の範囲で進める。M1完了、Gate B readiness、actual provision成功はまだ主張しない。
+
+### 9.13 R2 fixed-install anchor source (2026-09-06)
+
+状態: `INSTALL_ANCHOR_SOURCE_IMPLEMENTED / PROCESS_IMAGE_BINDING_INCOMPLETE / PROVISION_GRANT_DENIED`
+
+設計判断/source変更: `FOLDERID_ProgramFiles/DisplayDeck`をfixed install candidate pathとし、current executableのparentをinstall authorityへ採用する経路を除いた。D07のknown-folder/volume-GUID resolver、NT relative `FILE_OPEN`、object/stream/volume検証を再利用し、volume rootからProgram Files（最大16 components）、DisplayDeck、3つのfixed package filesまでparent handlesを保持する。ancestor/direct-child relation、local fixed NTFS、non-reparse/single-link、file length/stream、owner/DACLを検査し、署名後も同じhandlesのidentity、security digestとpackage bytesを再確認する。D07既存recordのexclusive share modeとexact DACLは変更していない。
+
+install ACLのcandidate admissionは意図的に保守的である。owner/effective write trusteeはSYSTEMまたはBuiltin Administratorsのみとし、その他のeffective ACEはread/executeのみを許す。root/Program Files ancestorに限り、既存childの置換を許さないadd-file/add-subdirectoryを許容する。DisplayDeckとpackage filesにはこの例外を与えない。inherit-only ACEはそのobjectのgrantには数えず、各existing childを別途検査する。null/empty DACL、unknown/deny/object/callback ACE、unknown flag/mask、malformed SID/ACLは拒否する。TrustedInstallerなど未採用owner、D07 attribute allowlist外のinstall directory、実cellのdefault ACLも適合を推測せずNo-Goとする。これは現在のWindows install layoutが通るという主張ではなく、通すためのowner/ACL変更も許可しない。確認済みAPIの権限意味は[Microsoft file access rights](https://learn.microsoft.com/en-us/windows/win32/fileio/file-access-rights-constants)と[ACE_HEADER](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-dtyp/628ebb1d-c509-4ea0-a10f-77ef97ca4586)に基づく。
+
+coordinatorとserviceは共通のpackage検証を通り、coordinatorではSCMを開く前に検査する。service commandもfixed known-folder pathから構築し、`current_exe`やfrontend指定pathからは作らない。`QueryFullProcessImageNameW`によるcurrent-process name一致を前後で確認するが、APIが返すのは[executable imageの名前](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-queryfullprocessimagenamew)であり、load前後のfile replacementやloaded image bytes/proven launch provenanceを証明するものとは扱わない。この不足、certificate lifecycle/external manifest pin binding、machine gate、fresh-absence creator anchor、actual writerは引き続き未接続で、serviceの最終結果は拒否のままである。publisher/manifest pinsもzeroを維持する。
+
+確認結果: ACL positive/negative/malformed/truncated inputを含むlocal unit 13件とfake actor process 1件がPASS。format check、Windows all-targets offline cross-check、diff whitespace checkがPASS。dependency/package設定追加なし。Windows署名検証/SCM/provision、actual machine-data write、D07/D08、display API、package生成は実行していない。次はloaded-image/launch bindingとfresh-absence creator anchorの不足を埋めるM1 source作業であり、Windows操作の依頼ではない。
+
+### 9.14 R2 fresh-leaf observation source (2026-09-06)
+
+状態: `FRESH_LEAF_OBSERVATION_IMPLEMENTED / CREATE_GRANT_DENIED / M1_INCOMPLETE`
+
+source変更: D07のvolume root→ProgramData→DisplayDeckの保持handle、exact directory DACL、identity/stream、direct-child chainとsame-handle revalidationを`MachineDirectoryAnchor`へ共通化した。D07は引き続き両recordのactual identity/DACL/length/chainを検査し、record openのaccess/share modeは維持する。ProgramData component数は16を上限とする。
+
+SYSTEM service向け`FreshProvisionObservation`は、保持したconsole tokenのSID digest一致と既存のprotected directory anchorを確認し、そのdirectory handleから両fixed record名をread-only `FILE_OPEN`で検査する。以前のOption-only openに加えNTSTATUSを保持する内部関数を使い、`STATUS_OBJECT_NAME_NOT_FOUND`だけをleaf不存在として扱う。existing file（empty/terminal/corruptを含む）、directory collision、access denied、sharing violation、missing parent、reparse failure、unknown statusはすべて拒否する。前後でdirectory anchorを再検証する。directory自身がmissingなら拒否し、作成・owner/DACL修復は行わない。根拠は[Microsoft NtCreateFileのFILE_OPEN定義](https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/ntifs/nf-ntifs-ntcreatefile)と[NTSTATUS定義](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-erref/596a1078-e883-4972-9bbc-49e60bebca55)。console tokenは同じservice invocation内の検査が終わるまで保持する。
+
+重要な境界: これは読取専用の観測であり、machine gateなしの複数観測をatomic fresh-absence proofに昇格しない。`FreshProvisionObservation`にwriter/create APIやgrantはなく、serviceは観測成立後も最終拒否する。loaded-image/launch binding、machine gateのexact named-object security、初回directory作成、certificate lifecycle/external manifest pin、Candidate 04 writerは未接続である。次のsource作業でもこの不足を埋めるか、独立したMAR decoder/exact-link検証を進める。bootstrap実行、M1完了、Gate B readinessは主張しない。
+
+確認結果: local unit 14件（exact absence statusと異常系を追加）+ fake actor process 1件がPASS。format、Windows all-targets offline cross-check、diff whitespace checkがPASS。publisher/manifest pinはzeroで、公開coordinator entryはSCM以前に拒否する既存testもPASS。Windows署名検証/SCM/provision/D07/D08/display API、actual machine-data write、package/fixture生成は実行していない。
+
+### 9.15 Candidate 04 bootstrap record cross-link (2026-09-06)
+
+状態: `BOOTSTRAP_CURRENT_LINK_SOURCE_IMPLEMENTED / STRUCTURAL_ONLY / M1_INCOMPLETE`
+
+`validate_candidate04_current_provision_link`をpure byte検証として追加した。MARはINITIAL_PROVISIONのA/version 1=`MAINTENANCE_INTENT`、B/version 2=`MAINTENANCE_ACTIVE`、A/version 3=`TERMINAL_CLEAN`だけを読み、header/slot/checksum、canonical typed JSON、physical parity、resident predecessor、nonzero epoch/lease、tick ordering、P/Q actor/kind/nonce、bootstrap O/T typed absenceを検査する。一般の13-state decoderではなく、他state/operation、optional critical evidence、孤立active/clean、ahead/lagging/crash-resume pairは拒否する。MAP state 3〜6のcurrentおよびresident predecessorが参照するMAR full header/slot hash、state/version/epoch/lease、actor/nonceを照合し、cleanではdesignated owner SID digestも照合する。既存のMAP parser、header/hash/hex/actor検証を再利用した。
+
+照合実装中に、Windows token SID helperがraw SIDだけをSHA-256へ渡していた不一致を検出した。Candidate 04 D03の`SHA-256("DisplayDeck.OwnerSidDigest.V1\0" || actualLength:u32le || actualSidBytes)`へ共通helperで修正し、OWNERSIDV1の3つのknown-answerと一致させた。Windows token側のnative SID validationを維持し、wire側のpure structural SID検査をnative validationやtrusted-token provenanceの代替にはしない。qualified release 01や既存fixtureのbytes/hashは変更していない。
+
+MAP/MAR原本のlayout fixture pairはprovision actor/nonceやlinked versionがexact bootstrap chainとして一致せず、新検証ではrejectする。positive testは原本のmemory copyだけからactor/nonce/version/parity/hashを整合させた3段chainとMAP state 3〜6を構築する。これはtest専用で、fixture/package生成やfreeze更新ではない。checksumを再計算したsemantic negatives、P/Q/owner不一致、noncanonical JSON、short file、ahead pairも検査する。
+
+境界: 戻り値は構造上のcurrent-link分類のみでwrite/cleanup grantではない。actual file ID/DACL、署名・boot/live actor authority、completion内checkpointの実bytes、durability、machine gate、loaded-image bindingは別途必要である。service/Windows writerへは接続しておらず、pin zeroと最終拒否を維持する。local unit 16件+fake actor process 1件、format、Windows all-targets offline cross-check、diff whitespace checkがPASS。Windows操作、display API、machine-data writeは0件。
+
+### 9.16 Candidate 04 bootstrap crash-pair classification (2026-09-06)
+
+状態: `CRASH_PAIR_CLASSIFIER_SOURCE_IMPLEMENTED / STRUCTURAL_ONLY / M1_INCOMPLETE`
+
+既存MAP/MAR decoder・actor/nonce/owner/link検証を共通化し、`classify_candidate04_provision_pair`を追加した。architectureのbootstrap crash tableに対応する10組を読取専用で分類する。`Absent`、`Unavailable`、identity付き`Present(bytes)`を別入力とし、CREATE_INTENT前後のtarget不存在、checkpoint後のsame-ID empty/header+zero slots/intent、MAPに対しMARが一致または1段先の組を区別する。record内のIDは入力されたobserved provision/target IDと照合するが、この入力型自体はtrusted handleからの取得を証明しない。
+
+checkpoint前のexisting target、checkpoint後のmissing/unreadable/wrong-ID target、partial/all-zero/unknown/corrupt file、2段以上先や逆行したpair、FAILED_CLOSEDは拒否する。MAP4 + MAR cleanだけは、MAR Aの旧intentがcleanで上書き済みのため、MAP3が参照する旧slot bytesを再構成しない。MAP4→resident activeのexact hash/version/epoch/lease link、MAR resident active→cleanのchain、MAP3のheader/epoch/lease整合は引き続き要求する。既存のsteady-state current-link APIはahead pairを拒否する契約を維持する。
+
+17 local unit tests + fake actor process 1件がPASS。追加contractではMAP 6状態×target 7観測の42組（10 accepted structural pairs）を走査し、wrong ID、partial/fresh/failed evidence、resident active改変とoverwritten historyのepoch矛盾も拒否する。format、Windows all-targets offline cross-check、diff whitespace checkがPASS。fixture原本・release 01は変更していない。
+
+全分類はdiagnostic evidenceだけで、next-write token、retry/repair/cleanup、install成功を発行しない。sourceはservice/Windows writerへ未接続であり、machine gate、loaded-image/manifest/boot/actor authority、actual handle/DACL、durable checkpoint/package completionの検証が必要な点は変わらない。pin zeroとserviceの最終拒否を維持し、Windows操作・machine-data write・display APIは実行していない。

@@ -202,6 +202,7 @@ Tauri公式sidecar文書はfrontendからspawnするpermissionも説明するが
 - 起動前にfinal canonical path、install root、file identity、expected digest、`WinVerifyTrust`相当のpublisher検証を行う候補とする。
 - TOCTOUを減らすため、path validation後のopen handleとprocess image identityを照合する。実現APIはPhase 2Aで検証する。
 - per-user writable installを採る場合は置換riskを再評価し、signed image runtime verificationをrelease gateにする。
+- mutation-track M1のprovision authorityは、`docs/implementation-plan.md` 9.11で2026-08-31に承認されたR2に従い、fixed-path bounded manifest bytes、detached PKCS#7 signature、Authenticode chain policy、Gate Bで固定するsingle publisher certificate SHA-256、opened actor image hashの全一致へ限定する。R2 sourceのpublisher digestはunset/zeroで常にdenyし、local hash、elevated callerの申告、publisher名、任意のtrusted publisherをmachine-data作成authorityにしない。実署名、certificate/timestamp/revocation policy、artifact生成、Windows上でのsignature-verification実行はR2に含めない。
 
 ### 8.2 Process identity/fencing
 
@@ -247,7 +248,7 @@ Tauri公式sidecar文書はfrontendからspawnするpermissionも説明するが
 - runtimeは`asInvoker`/standard userを第一候補とする。
 - display API failureを見て自動UAC再起動しない。
 - ordinary UI/runtime/watchdog transaction laneはadministrator token、service、SYSTEM、scheduled taskを要求しない。
-- D05/D06のinitial provisionとmachine maintenanceだけはapproved SYSTEM token laneを必要とする。per-machine installer elevationとSYSTEM actor起動/identity proof、ordinary runtime capabilityを分離し、service/scheduled-task等の具体的なSYSTEM起動方式は別承認・Phase 2A evidenceなしに採用しない。
+- D05/D06のinitial provisionとmachine maintenanceだけはapproved SYSTEM token laneを必要とする。per-machine installer elevationとSYSTEM actor起動/identity proof、ordinary runtime capabilityを分離する。2026-08-30の`GATE-A-MUTATION-ADDENDUM-01-R1`で、既存`displaydeck-actor` imageをfixed-name、`SERVICE_WIN32_OWN_PROCESS`、`SERVICE_DEMAND_START`、LocalSystem、one-shot SCM serviceとして起動する方式だけをsource実装へ採用した。常駐、自動起動、別service binary、任意引数、UI/runtimeからの起動、scheduled task fallbackは採用しない。actual SCM操作、protected machine-data write、provision実行はGate B前に行わない。
 - runtime elevationが必要と判明した場合、attack surface、journal ownership、low/high integrity IPC、unelevated UIとの境界を再設計し、初期scopeを再承認する。
 
 ## 10. Rust `unsafe`とWindows API境界

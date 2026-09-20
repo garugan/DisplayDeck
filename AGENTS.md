@@ -1,34 +1,32 @@
 # DisplayDeck repository instructions
 
-## Current project gate: Gate C approved, read-only MVP complete
+## Current version scope — owner direction, 2026-09-21
 
-The roadmap was reduced to the three human gates in `docs/implementation-plan.md` on 2026-08-24. Gate A / Stage 0 and the non-mutating Stage 1 are complete. On 2026-08-30 the actual D07 inspector returned `NO_GO:DirectoryAnchorUnproven` with `MutationAuthorized: false`; Stage 2 therefore ended with zero display API calls. The read-only Stage 3 NSIS build/install/smoke/uninstall verification is complete. On 2026-08-30 the human owner approved Gate C release 01: the 2,160,426-byte installer with SHA-256 `3307DB604C5C96B4E753D499ECB006E2209695006965F9BA7D65A1BF6F1EFD2F` is the completed read-only MVP for the recorded Windows 10 exact cell. No required work remains. Do not rebuild, reinstall, rerun D07, disconnect displays, write actual machine-data, or perform display mutation. Persistent display changes, multi-display mutation, Windows 11 or other support-cell claims, signing, auto-update, and public distribution remain unauthorized. Any product-source or artifact-byte change creates a new candidate and requires the relevant validation and approval.
+v0.1.0 is a read-only Windows display inventory and diagnostics app. Its scope is display enumeration, current-mode acquisition, read-only UI, diagnostic JSON, fail-closed behavior, installer, and uninstall. Display-setting changes, Apply / Restore, WAL, crash recovery, watchdog, mutation safety, and Gate B belong to v0.2 or later and must not be prerequisites for completing v0.1.0. Existing mutation code and approval records are future-track assets, not v0.1.0 requirements. This scope decision does not authorize new Windows operations, mutation, or a broader release/support claim, and does not change the qualified release 01 artifact. Apply the mutation safety constraints below when working on that future track.
+
+## Current project gate: read-only release complete, mutation-track implementation authorized
+
+The roadmap was reduced to the three human gates in `docs/implementation-plan.md` on 2026-08-24. Gate A / Stage 0 and the non-mutating Stage 1 are complete. On 2026-08-30 the actual D07 inspector returned `NO_GO:DirectoryAnchorUnproven` with `MutationAuthorized: false`; Stage 2 therefore ended with zero display API calls. The read-only Stage 3 NSIS build/install/smoke/uninstall verification is complete. On 2026-08-30 the human owner approved Gate C release 01: the 2,160,426-byte installer with SHA-256 `3307DB604C5C96B4E753D499ECB006E2209695006965F9BA7D65A1BF6F1EFD2F` is the completed read-only MVP for the recorded Windows 10 exact cell.
+
+On 2026-08-30 the human owner explicitly approved `GATE-A-MUTATION-ADDENDUM-01` in `docs/implementation-plan.md`. M1-M3 application/native/config/test changes and display-API-free format, typecheck, unit/process test, and non-mutating build are authorized. These changes form a new candidate and do not alter or overwrite the qualified release 01 artifact.
+
+On 2026-08-30 the human owner explicitly approved revision `GATE-A-MUTATION-ADDENDUM-01-R1`: the same `displaydeck-actor` executable image may implement a fixed-name, demand-start, one-shot LocalSystem SCM handshake for the M1 SYSTEM creator lane. Source/config/test changes and non-mutating cross-compilation are authorized. No SCM command may be executed on Windows yet, and the handshake must not create or write protected machine-data.
+
+On 2026-08-31 the human owner explicitly approved revision `GATE-A-MUTATION-ADDENDUM-01-R2`: source may implement the fixed-path bounded `DisplayDeckProvisionManifestV1` parser/hash binding, detached PKCS#7 and Authenticode-chain verification, Gate-B-pinned publisher certificate SHA-256 and opened actor-image binding, fail-closed provision grant, and Candidate 04 wire/state transitions. The publisher and manifest digests must remain unset/zero, so authorization always denies. Only source/config/test and display-API-free local tests/cross-compilation are authorized; signing, manifest/package artifact generation, Windows signature-verification/SCM/provision execution, and actual machine-data writes remain unauthorized.
+
+Windows provision/install, actual machine-data write, D07/D08 execution, `CDS_TEST`, dynamic apply, display disconnect or physical single-path reconfiguration, Gate B/M4, persistent or multi-display changes, Windows 11 or other support-cell claims, signing, auto-update, public distribution, and mutation release remain unauthorized.
 
 Whenever the next operator action runs on Windows, first record the exact command and stop/continue conditions in `docs/windows-validation-history.md`, add only a concise pointer to `README.md` when the action is current, then commit and push that documentation before asking the operator to run it.
 
-Until a human owner explicitly approves the revised design and separately authorizes the relevant phase, agents must not:
+Within the approved M1-M3 implementation lane, agents must not:
 
-- create or modify application source, validation code, fixtures, generated artifacts, or native project files;
-- create or modify `package.json`, lockfiles, `Cargo.toml`, Tauri/Vite/TypeScript/Rust configuration, installer, CI, lint, test, signing, or runtime configuration;
 - install, update, or remove packages, toolchains, plugins, or system components;
-- run build, test, development-server, packaging, Cargo, npm, native-compilation, technical-spike, or Windows display-setting operations;
+- run packaging, installation, development-server, or Windows operator/display-setting operations;
+- execute any display API, including `CDS_TEST`, or write actual Windows machine-data;
+- register, start, stop, delete, or otherwise operate the R1 Windows service before the exact Windows command is recorded, committed, pushed, and separately authorized in Gate B;
 - change an actual operating-system display setting;
-- begin a phase merely because it appears in `docs/implementation-plan.md`.
-
-Before revised-design approval, the only project artifacts that may be created or edited are:
-
-- `AGENTS.md`
-- `docs/requirements.md`
-- `docs/architecture.md`
-- `docs/windows-display-research.md`
-- `docs/ui-design.md`
-- `docs/security.md`
-- `docs/testing-strategy.md`
-- `docs/implementation-plan.md`
-- `docs/risks-and-open-questions.md`
-- `docs/tauri-migration.md`
-- `docs/tauri-design-review-checklist.md`
-- `docs/tauri-review-resolution.md`
+- add a dependency, framework, generic backend abstraction, installer privilege, signing, or distribution scope without returning to the approved record;
+- treat a non-mutating build/test success as Gate B authority or a support claim.
 
 `docs/design-review.md` and `docs/review-resolution.md` are immutable historical records unless a human owner explicitly asks to amend the record. If a pre-approval request crosses this boundary, stop and request explicit authorization.
 

@@ -1,9 +1,117 @@
+#[cfg(any(target_os = "windows", test))]
+fn relative_components(path: &[u16], mount: &[u16]) -> Option<Vec<Vec<u16>>> {
+    if path.contains(&0) || mount.contains(&0) || mount.last() != Some(&(b'\\' as u16)) {
+        return None;
+    }
+    let relative = path.strip_prefix(mount)?;
+    let components = relative
+        .split(|unit| *unit == b'\\' as u16)
+        .map(<[u16]>::to_vec)
+        .collect::<Vec<_>>();
+    (!components.is_empty()
+        && components.iter().all(|component| {
+            !component.is_empty()
+                && component != &['.' as u16]
+                && component != &['.' as u16, '.' as u16]
+                && !component
+                    .iter()
+                    .any(|unit| matches!(*unit, 0 | 47 | 58 | 92))
+        }))
+    .then_some(components)
+}
+
+#[cfg(any(target_os = "windows", test))]
+fn is_exact_leaf_absence(status: i32) -> bool {
+    // STATUS_OBJECT_NAME_NOT_FOUND only. Missing parent, denied access, a sharing
+    // conflict, a reparse failure and successful open are not fresh-leaf absence.
+    status == 0xc000_0034_u32 as i32
+}
+
+/// Candidate 04 D03 preimage; structural bytes only. Windows callers must also
+/// obtain the SID from a trusted token and pass native SID validation.
+pub(crate) fn candidate04_owner_sid_digest(sid: &[u8]) -> Option<[u8; 32]> {
+    use sha2::{Digest, Sha256};
+    if !(8..=68).contains(&sid.len())
+        || sid[0] != 1
+        || sid[1] > 15
+        || sid.len() != 8 + usize::from(sid[1]) * 4
+    {
+        return None;
+    }
+    let mut digest = Sha256::new();
+    digest.update(b"DisplayDeck.OwnerSidDigest.V1\0");
+    digest.update((sid.len() as u32).to_le_bytes());
+    digest.update(sid);
+    Some(digest.finalize().into())
+}
+
+// Conservative install-only ACL admission, not a general Windows access evaluator.
+// Unknown/conditional/deny ACEs fail closed; no deny-order or group-membership inference.
+#[cfg(any(target_os = "windows", test))]
+fn install_acl_is_read_only(owner: &[u8], acl: &[u8], ancestor: bool) -> Option<()> {
+    const SYSTEM: &[u8] = &[1, 1, 0, 0, 0, 0, 0, 5, 18, 0, 0, 0];
+    const ADMINS: &[u8] = &[1, 2, 0, 0, 0, 0, 0, 5, 32, 0, 0, 0, 32, 2, 0, 0];
+    // ponytail: SYSTEM/Administrators owners only. Other owners, including
+    // TrustedInstaller, need an exact-cell reviewed profile before admission.
+    if ![SYSTEM, ADMINS].contains(&owner)
+        || acl.len() < 8
+        || acl[0] != 2
+        || acl[1] != 0
+        || acl[6..8] != [0, 0]
+        || usize::from(u16::from_le_bytes(acl[2..4].try_into().ok()?)) != acl.len()
+    {
+        return None;
+    }
+    let count = u16::from_le_bytes(acl[4..6].try_into().ok()?);
+    if count == 0 || count > 64 {
+        return None;
+    }
+    let mut offset = 8_usize;
+    for _ in 0..count {
+        let header = acl.get(offset..offset.checked_add(8)?)?;
+        let length = usize::from(u16::from_le_bytes(header[2..4].try_into().ok()?));
+        let ace = acl.get(offset..offset.checked_add(length)?)?;
+        let sid = ace.get(8..)?;
+        if header[0] != 0
+            || header[1] & !0x1f != 0
+            || sid.len() < 8
+            || sid[0] != 1
+            || sid[1] > 15
+            || sid.len() != 8 + usize::from(sid[1]) * 4
+        {
+            return None;
+        }
+        let mask = u32::from_le_bytes(header[4..8].try_into().ok()?);
+        if mask & !0xf01f_01ff != 0 {
+            return None;
+        }
+        // Inherit-only grants do not apply to this object. Each existing child is
+        // independently inspected. No creation is authorized by this check.
+        if header[1] & 0x08 == 0 && ![SYSTEM, ADMINS].contains(&sid) {
+            // FILE_GENERIC_READ | FILE_GENERIC_EXECUTE | GENERIC_READ | GENERIC_EXECUTE.
+            let allowed = 0xa012_00a9 | if ancestor { 0x06 } else { 0 };
+            // Ancestors may allow creating unrelated children, never deleting/replacing
+            // existing children or modifying attributes, security, ownership or streams.
+            if mask & !allowed != 0 {
+                return None;
+            }
+        }
+        offset = offset.checked_add(length)?;
+    }
+    // ACL capacity may include unused bytes, but only zero-filled padding is admitted.
+    acl.get(offset..)?
+        .iter()
+        .all(|byte| *byte == 0)
+        .then_some(())
+}
+
 #[cfg(target_os = "windows")]
 mod platform {
     use std::{mem::size_of, ptr};
 
+    use sha2::{Digest, Sha256};
     use windows::{
-        core::{PCWSTR, PWSTR},
+        core::{GUID, PCWSTR, PWSTR},
         Wdk::{
             Foundation::OBJECT_ATTRIBUTES,
             Storage::FileSystem::{
@@ -13,41 +121,47 @@ mod platform {
         },
         Win32::{
             Foundation::{
-                CloseHandle, HANDLE, HLOCAL, OBJ_CASE_INSENSITIVE, OBJ_DONT_REPARSE, UNICODE_STRING,
+                CloseHandle, HANDLE, HLOCAL, NTSTATUS, OBJ_CASE_INSENSITIVE, OBJ_DONT_REPARSE,
+                STATUS_INVALID_PARAMETER, UNICODE_STRING,
             },
             Security::Authorization::{GetSecurityInfo, SE_FILE_OBJECT},
             Security::{
                 AclSizeInformation, CreateWellKnownSid, EqualSid, GetAce, GetAclInformation,
-                GetSecurityDescriptorControl, GetTokenInformation, IsValidSid, TokenUser,
-                WinBuiltinAdministratorsSid, WinLocalSystemSid, ACCESS_ALLOWED_ACE, ACE_HEADER,
-                ACL_SIZE_INFORMATION, DACL_SECURITY_INFORMATION, OWNER_SECURITY_INFORMATION,
-                PSECURITY_DESCRIPTOR, PSID, SE_DACL_PRESENT, SE_DACL_PROTECTED, SE_SELF_RELATIVE,
-                TOKEN_QUERY, TOKEN_USER,
+                GetLengthSid, GetSecurityDescriptorControl, GetTokenInformation, IsValidSid,
+                TokenUser, WinBuiltinAdministratorsSid, WinLocalSystemSid, ACCESS_ALLOWED_ACE,
+                ACE_HEADER, ACL_SIZE_INFORMATION, DACL_SECURITY_INFORMATION,
+                OWNER_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR, PSID, SE_DACL_PRESENT,
+                SE_DACL_PROTECTED, SE_SELF_RELATIVE, TOKEN_QUERY, TOKEN_USER,
             },
             Storage::FileSystem::{
-                FileAttributeTagInfo, FileIdInfo, FileStandardInfo, FileStreamInfo, GetDriveTypeW,
-                GetFileInformationByHandleEx, GetFinalPathNameByHandleW,
-                GetVolumeInformationByHandleW, FILE_ATTRIBUTE_ARCHIVE, FILE_ATTRIBUTE_COMPRESSED,
+                CreateFileW, FileAttributeTagInfo, FileIdInfo, FileStandardInfo, FileStreamInfo,
+                GetDriveTypeW, GetFileInformationByHandleEx, GetFinalPathNameByHandleW,
+                GetVolumeInformationByHandleW, GetVolumeNameForVolumeMountPointW,
+                GetVolumePathNameW, FILE_ATTRIBUTE_ARCHIVE, FILE_ATTRIBUTE_COMPRESSED,
                 FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_ENCRYPTED, FILE_ATTRIBUTE_HIDDEN,
                 FILE_ATTRIBUTE_NORMAL, FILE_ATTRIBUTE_NOT_CONTENT_INDEXED, FILE_ATTRIBUTE_OFFLINE,
                 FILE_ATTRIBUTE_READONLY, FILE_ATTRIBUTE_REPARSE_POINT, FILE_ATTRIBUTE_SYSTEM,
-                FILE_ATTRIBUTE_TAG_INFO, FILE_ID_INFO, FILE_READ_ATTRIBUTES, FILE_READ_DATA,
-                FILE_READ_EA, FILE_SHARE_READ, FILE_STANDARD_INFO, FILE_STREAM_INFO, FILE_TRAVERSE,
-                FILE_WRITE_DATA, READ_CONTROL, SYNCHRONIZE, VOLUME_NAME_GUID,
+                FILE_ATTRIBUTE_TAG_INFO, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
+                FILE_ID_INFO, FILE_READ_ATTRIBUTES, FILE_READ_DATA, FILE_READ_EA,
+                FILE_SHARE_DELETE, FILE_SHARE_MODE, FILE_SHARE_READ, FILE_SHARE_WRITE,
+                FILE_STANDARD_INFO, FILE_STREAM_INFO, FILE_TRAVERSE, FILE_WRITE_DATA,
+                OPEN_EXISTING, READ_CONTROL, SYNCHRONIZE, VOLUME_NAME_GUID,
             },
             System::{
                 Com::CoTaskMemFree,
                 SystemServices::{
                     FILE_NAMED_STREAMS, FILE_PERSISTENT_ACLS, FILE_SUPPORTS_HARD_LINKS,
                 },
-                Threading::{GetCurrentProcess, OpenProcessToken},
+                Threading::{GetCurrentProcess, OpenProcessToken, QueryFullProcessImageNameW},
                 IO::IO_STATUS_BLOCK,
             },
-            UI::Shell::{FOLDERID_ProgramData, SHGetKnownFolderPath, KF_FLAG_DEFAULT},
+            UI::Shell::{
+                FOLDERID_ProgramData, FOLDERID_ProgramFiles, SHGetKnownFolderPath, KF_FLAG_DEFAULT,
+            },
         },
     };
 
-    use super::{D07Anchor, D07StorageFailure, D07StorageVerdict};
+    use super::{relative_components, D07Anchor, D07StorageFailure, D07StorageVerdict};
 
     const DIRECTORY: &str = "DisplayDeck";
     const ACTOR: &str = "MachineActorRecordV1";
@@ -61,94 +175,447 @@ mod platform {
     const ACTOR_LENGTH: i64 = 135_168;
 
     pub(super) fn inspect() -> D07StorageVerdict {
-        let Ok(program_data) = known_program_data() else {
-            return no_go(D07StorageFailure::ProgramDataUnavailable);
-        };
         let Some(token_sid) = token_sid() else {
-            return no_go(D07StorageFailure::DaclUnproven);
+            return no_go(D07StorageFailure::RuntimeSidUnproven);
         };
-        let Some(root) = open_absolute_directory(&program_data) else {
-            return no_go(D07StorageFailure::DirectoryAnchorUnproven);
+        let directory_anchor = match MachineDirectoryAnchor::open(token_sid) {
+            Ok(anchor) => anchor,
+            Err(reason) => return no_go(reason),
         };
-        let Some(root_evidence) = verify_root(root.0) else {
-            return no_go(D07StorageFailure::DirectoryAnchorUnproven);
-        };
-        let Some(volume) = volume_profile(root.0) else {
-            return no_go(D07StorageFailure::LocalFixedNtfsUnproven);
-        };
-        if root_evidence.id.VolumeSerialNumber != u64::from(volume.serial)
-            || root_evidence.final_path != volume.root_path
-        {
-            return no_go(D07StorageFailure::LocalFixedNtfsUnproven);
-        }
-        let Some(directory) = open_relative_directory(root.0, DIRECTORY) else {
-            return no_go(D07StorageFailure::MissingComponent);
-        };
-        let Some(directory_evidence) = verify_directory(directory.0, &token_sid) else {
-            return no_go(D07StorageFailure::DirectoryAnchorUnproven);
-        };
-        if !is_direct_child(
-            &root_evidence.final_path,
-            &directory_evidence.final_path,
-            DIRECTORY,
-        ) {
-            return no_go(D07StorageFailure::DirectoryAnchorUnproven);
-        }
-        let Some(provision) = open_relative_file(directory.0, PROVISION, false) else {
-            return no_go(D07StorageFailure::MissingComponent);
-        };
-        let Some(provision_evidence) =
-            verify_file(provision.0, &token_sid, ADMIN_READ, PROVISION_LENGTH)
+        let Some(provision) = open_relative_file(directory_anchor.directory.0, PROVISION, false)
         else {
-            return no_go(D07StorageFailure::DaclUnproven);
+            return no_go(D07StorageFailure::ProvisionRecordMissing);
         };
-        if !is_direct_child(
-            &directory_evidence.final_path,
-            &provision_evidence.final_path,
-            PROVISION,
-        ) {
-            return no_go(D07StorageFailure::DirectoryAnchorUnproven);
+        if !dacl_matches(provision.0, &directory_anchor.token_sid, ADMIN_READ) {
+            return no_go(D07StorageFailure::ProvisionRecordDaclUnproven);
+        };
+        let Some(provision_evidence) = verify_identity(
+            provision.0,
+            ObjectKind::File {
+                expected_length: PROVISION_LENGTH,
+            },
+        ) else {
+            return no_go(D07StorageFailure::ProvisionRecordIdentityUnproven);
+        };
+        let Some(actor) = open_relative_file(directory_anchor.directory.0, ACTOR, true) else {
+            return no_go(D07StorageFailure::ActorRecordMissing);
+        };
+        if !dacl_matches(actor.0, &directory_anchor.token_sid, RECORD_SLOT_WRITE) {
+            return no_go(D07StorageFailure::ActorRecordDaclUnproven);
         }
-        let Some(actor) = open_relative_file(directory.0, ACTOR, true) else {
-            return no_go(D07StorageFailure::MissingComponent);
+        let Some(actor_evidence) = verify_identity(
+            actor.0,
+            ObjectKind::File {
+                expected_length: ACTOR_LENGTH,
+            },
+        ) else {
+            return no_go(D07StorageFailure::ActorRecordIdentityUnproven);
         };
-        let Some(actor_evidence) =
-            verify_file(actor.0, &token_sid, RECORD_SLOT_WRITE, ACTOR_LENGTH)
-        else {
-            return no_go(D07StorageFailure::DaclUnproven);
-        };
-        if !is_direct_child(
-            &directory_evidence.final_path,
-            &actor_evidence.final_path,
-            ACTOR,
-        ) || root_evidence.id.VolumeSerialNumber != directory_evidence.id.VolumeSerialNumber
-            || root_evidence.id.VolumeSerialNumber != provision_evidence.id.VolumeSerialNumber
-            || root_evidence.id.VolumeSerialNumber != actor_evidence.id.VolumeSerialNumber
-        {
-            return no_go(D07StorageFailure::DirectoryAnchorUnproven);
+        if !directory_anchor.records_match(&provision_evidence, &actor_evidence) {
+            return no_go(D07StorageFailure::AnchorChainMismatch);
         }
         D07StorageVerdict::Go(D07Anchor {
-            root,
-            directory,
+            directory_anchor,
             provision,
             actor,
-            token_sid,
-            root_evidence,
-            directory_evidence,
             provision_evidence,
             actor_evidence,
-            volume,
         })
+    }
+
+    pub(super) struct MachineDirectoryAnchor {
+        volume_root: HeldHandle,
+        program_data_handles: Vec<HeldHandle>,
+        directory: HeldHandle,
+        pub(super) token_sid: TokenSid,
+        components: Vec<Vec<u16>>,
+        volume_root_evidence: ObjectEvidence,
+        program_data_evidence: Vec<ObjectEvidence>,
+        directory_evidence: ObjectEvidence,
+        volume: VolumeProfile,
+    }
+
+    impl MachineDirectoryAnchor {
+        fn open(token_sid: TokenSid) -> Result<Self, D07StorageFailure> {
+            let Ok(program_data) = known_folder(&FOLDERID_ProgramData) else {
+                return Err(D07StorageFailure::ProgramDataUnavailable);
+            };
+            let Some((volume_name, components)) = known_folder_location(&program_data) else {
+                return Err(D07StorageFailure::VolumePathUnproven);
+            };
+            if components.len() > 16 {
+                return Err(D07StorageFailure::VolumePathUnproven);
+            }
+            let Some(volume_root) = open_volume_root(&volume_name) else {
+                return Err(D07StorageFailure::VolumeRootOpenUnproven);
+            };
+            let Some(volume_root_evidence) = verify_root(volume_root.0) else {
+                return Err(D07StorageFailure::VolumeRootIdentityUnproven);
+            };
+            let Some(volume) = volume_profile(volume_root.0) else {
+                return Err(D07StorageFailure::LocalFixedNtfsUnproven);
+            };
+            if volume_root_evidence.id.VolumeSerialNumber != u64::from(volume.serial)
+                || volume_root_evidence.final_path != volume.root_path
+                || volume.guid_root != volume.root_path
+            {
+                return Err(D07StorageFailure::LocalFixedNtfsUnproven);
+            }
+            let mut parent = volume_root.0;
+            let mut program_data_handles = Vec::with_capacity(components.len());
+            let mut program_data_evidence = Vec::with_capacity(components.len());
+            for component in &components {
+                let Some(handle) = open_relative_directory_units(parent, component) else {
+                    return Err(D07StorageFailure::ProgramDataComponentMissing);
+                };
+                let Some(evidence) = verify_identity(handle.0, ObjectKind::Directory) else {
+                    return Err(D07StorageFailure::ProgramDataComponentIdentityUnproven);
+                };
+                parent = handle.0;
+                program_data_handles.push(handle);
+                program_data_evidence.push(evidence);
+            }
+            let Some(directory) = open_relative_directory(parent, DIRECTORY) else {
+                return Err(D07StorageFailure::DisplayDeckDirectoryMissing);
+            };
+            if !dacl_matches(directory.0, &token_sid, DIRECTORY_TRAVERSE) {
+                return Err(D07StorageFailure::DisplayDeckDirectoryDaclUnproven);
+            }
+            let Some(directory_evidence) = verify_identity(directory.0, ObjectKind::Directory)
+            else {
+                return Err(D07StorageFailure::DisplayDeckDirectoryIdentityUnproven);
+            };
+            let anchor = Self {
+                volume_root,
+                program_data_handles,
+                directory,
+                token_sid,
+                components,
+                volume_root_evidence,
+                program_data_evidence,
+                directory_evidence,
+                volume,
+            };
+            anchor
+                .revalidate()
+                .then_some(anchor)
+                .ok_or(D07StorageFailure::AnchorChainMismatch)
+        }
+
+        pub(super) fn revalidate(&self) -> bool {
+            volume_profile(self.volume_root.0).as_ref() == Some(&self.volume)
+                && verify_root(self.volume_root.0).as_ref() == Some(&self.volume_root_evidence)
+                && self.program_data_handles.len() == self.program_data_evidence.len()
+                && self
+                    .program_data_handles
+                    .iter()
+                    .zip(&self.program_data_evidence)
+                    .all(|(handle, expected)| {
+                        verify_identity(handle.0, ObjectKind::Directory).as_ref() == Some(expected)
+                    })
+                && verify_directory(self.directory.0, &self.token_sid).as_ref()
+                    == Some(&self.directory_evidence)
+                && directory_chain_matches(
+                    &self.volume_root_evidence,
+                    &self.components,
+                    &self.program_data_evidence,
+                    &self.directory_evidence,
+                )
+        }
+
+        pub(super) fn records_match(
+            &self,
+            provision: &ObjectEvidence,
+            actor: &ObjectEvidence,
+        ) -> bool {
+            anchor_chain_matches(
+                &self.volume_root_evidence,
+                &self.components,
+                &self.program_data_evidence,
+                &self.directory_evidence,
+                provision,
+                actor,
+            )
+        }
+    }
+
+    // A retained read-only observation, NOT a fresh-create/write grant. Absence can
+    // race until a proven machine gate and exclusive CREATE_NEW are connected.
+    pub(crate) struct FreshProvisionObservation {
+        directory: MachineDirectoryAnchor,
+    }
+
+    impl FreshProvisionObservation {
+        pub(crate) fn observe(owner_token: HANDLE, expected_owner: [u8; 32]) -> Option<Self> {
+            if !current_process_is_local_system()
+                || expected_owner == [0; 32]
+                || token_sid_digest(owner_token) != Some(expected_owner)
+            {
+                return None;
+            }
+            let directory =
+                MachineDirectoryAnchor::open(token_sid_for_handle(owner_token)?).ok()?;
+            let observation = Self { directory };
+            observation.reobserve().then_some(observation)
+        }
+
+        pub(crate) fn reobserve(&self) -> bool {
+            current_process_is_local_system()
+                && self.directory.revalidate()
+                && [PROVISION, ACTOR].into_iter().all(|name| {
+                    let mut units = name.encode_utf16().collect::<Vec<_>>();
+                    units.push(0);
+                    match open_existing(
+                        Some(self.directory.directory.0),
+                        &units,
+                        false,
+                        false,
+                        Default::default(),
+                    ) {
+                        // Any existing object blocks fresh creation, including zero-length,
+                        // old terminal or corrupt files. Drop closes without reading/mutating.
+                        Ok(_existing) => false,
+                        Err(status) => super::is_exact_leaf_absence(status.0),
+                    }
+                })
+                && self.directory.revalidate()
+        }
     }
 
     fn no_go(reason: D07StorageFailure) -> D07StorageVerdict {
         D07StorageVerdict::NoGo(reason)
     }
 
-    fn known_program_data() -> Result<Vec<u16>, ()> {
+    pub(crate) struct ProtectedInstall {
+        parents: Vec<(HeldHandle, ObjectEvidence, [u8; 32])>,
+        volume: VolumeProfile,
+        actor_path: Vec<u16>,
+    }
+
+    #[derive(PartialEq)]
+    pub(crate) struct InstallFileEvidence {
+        identity: ObjectEvidence,
+        security: [u8; 32],
+    }
+
+    impl ProtectedInstall {
+        pub(crate) fn open() -> Option<Self> {
+            let program_files = known_folder(&FOLDERID_ProgramFiles).ok()?;
+            let (volume_name, mut components) = known_folder_location(&program_files)?;
+            if components.len() > 16 {
+                return None;
+            }
+            components.push(DIRECTORY.encode_utf16().collect());
+            let root = open_volume_root(&volume_name)?;
+            let identity = verify_root(root.0)?;
+            let volume = volume_profile(root.0)?;
+            if identity.id.VolumeSerialNumber != u64::from(volume.serial)
+                || identity.final_path != volume.root_path
+                || volume.guid_root != volume.root_path
+            {
+                return None;
+            }
+            let security = install_security(root.0, true)?;
+            let mut parents = vec![(root, identity, security)];
+            for (index, component) in components.iter().enumerate() {
+                let parent = parents.last()?;
+                let child = open_relative_directory_units(parent.0 .0, component)?;
+                let identity = verify_identity(child.0, ObjectKind::Directory)?;
+                if identity.id.VolumeSerialNumber != u64::from(volume.serial)
+                    || !is_direct_child_units(&parent.1.final_path, &identity.final_path, component)
+                {
+                    return None;
+                }
+                let security = install_security(child.0, index + 1 != components.len())?;
+                parents.push((child, identity, security));
+            }
+            let mut actor_path = program_files.strip_suffix(&[0])?.to_vec();
+            actor_path.extend("\\DisplayDeck\\".encode_utf16());
+            actor_path.extend(crate::provision_service::ACTOR_IMAGE_NAME.encode_utf16());
+            let install = Self {
+                parents,
+                volume,
+                actor_path,
+            };
+            install.revalidate().then_some(install)
+        }
+
+        pub(crate) fn actor_path(&self) -> &[u16] {
+            &self.actor_path
+        }
+
+        pub(crate) fn revalidate(&self) -> bool {
+            let Some(root) = self.parents.first() else {
+                return false;
+            };
+            volume_profile(root.0 .0).as_ref() == Some(&self.volume)
+                && self
+                    .parents
+                    .iter()
+                    .enumerate()
+                    .all(|(index, (handle, identity, security))| {
+                        let kind = if index == 0 {
+                            ObjectKind::Root
+                        } else {
+                            ObjectKind::Directory
+                        };
+                        verify_identity(handle.0, kind).as_ref() == Some(identity)
+                            && install_security(handle.0, index + 1 != self.parents.len()).as_ref()
+                                == Some(security)
+                    })
+        }
+
+        // This is a process NAME observation only, not loaded-image byte identity.
+        // Pre-open image replacement/launch provenance still blocks a provision grant.
+        pub(crate) fn process_image_name_matches(&self) -> bool {
+            let mut path = [0_u16; 32_768];
+            let mut length = path.len() as u32;
+            // SAFETY: current-process pseudo-handle and bounded writable UTF-16 buffer.
+            if unsafe {
+                QueryFullProcessImageNameW(
+                    GetCurrentProcess(),
+                    Default::default(),
+                    PWSTR(path.as_mut_ptr()),
+                    &mut length,
+                )
+            }
+            .is_err()
+            {
+                return false;
+            }
+            let length = length as usize;
+            length != 0
+                && length < path.len()
+                && path[length] == 0
+                && normalize_final_path(&path[..length])
+                    .zip(normalize_final_path(&self.actor_path))
+                    .is_some_and(|(actual, expected)| actual == expected)
+        }
+
+        pub(crate) fn open_file(&self, name: &str) -> Option<std::fs::File> {
+            use std::os::windows::io::FromRawHandle;
+            if ![
+                crate::provision_service::ACTOR_IMAGE_NAME,
+                crate::provision_service::MANIFEST_NAME,
+                crate::provision_service::MANIFEST_SIGNATURE_NAME,
+            ]
+            .contains(&name)
+            {
+                return None;
+            }
+            let mut units = name.encode_utf16().collect::<Vec<_>>();
+            units.push(0);
+            let handle = open(
+                Some(self.parents.last()?.0 .0),
+                &units,
+                false,
+                false,
+                FILE_SHARE_READ,
+            )?;
+            let handle = std::mem::ManuallyDrop::new(handle);
+            // SAFETY: transfer the single owned NT handle to File; HeldHandle will not close it.
+            Some(unsafe { std::fs::File::from_raw_handle(handle.0 .0) })
+        }
+
+        pub(crate) fn file_evidence(
+            &self,
+            file: &std::fs::File,
+            name: &str,
+            length: u64,
+        ) -> Option<InstallFileEvidence> {
+            use std::os::windows::io::AsRawHandle;
+            let handle = HANDLE(file.as_raw_handle());
+            let identity = verify_identity(
+                handle,
+                ObjectKind::File {
+                    expected_length: i64::try_from(length).ok()?,
+                },
+            )?;
+            let parent = self.parents.last()?;
+            if identity.id.VolumeSerialNumber != u64::from(self.volume.serial)
+                || !is_direct_child(&parent.1.final_path, &identity.final_path, name)
+            {
+                return None;
+            }
+            Some(InstallFileEvidence {
+                identity,
+                security: install_security(handle, false)?,
+            })
+        }
+    }
+
+    fn install_security(handle: HANDLE, ancestor: bool) -> Option<[u8; 32]> {
+        let mut owner = PSID::default();
+        let mut dacl = ptr::null_mut();
+        let mut descriptor = PSECURITY_DESCRIPTOR::default();
+        // SAFETY: all outputs are initialized and remain owned until LocalFree below.
+        let result = unsafe {
+            GetSecurityInfo(
+                handle,
+                SE_FILE_OBJECT,
+                OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION,
+                Some(&mut owner),
+                None,
+                Some(&mut dacl),
+                None,
+                Some(&mut descriptor),
+            )
+        };
+        let evidence = (|| {
+            if result.0 != 0 || owner.0.is_null() || dacl.is_null() || descriptor.0.is_null() {
+                return None;
+            }
+            let mut control = 0_u16;
+            let mut revision = 0_u32;
+            let mut info = ACL_SIZE_INFORMATION::default();
+            // SAFETY: these pointers are native-owned parts of the successful descriptor.
+            unsafe {
+                GetSecurityDescriptorControl(descriptor, &mut control, &mut revision).ok()?;
+                GetAclInformation(
+                    dacl,
+                    (&mut info as *mut ACL_SIZE_INFORMATION).cast(),
+                    size_of::<ACL_SIZE_INFORMATION>() as u32,
+                    AclSizeInformation,
+                )
+                .ok()?;
+                if !IsValidSid(owner).as_bool() {
+                    return None;
+                }
+            }
+            if revision != 1 || control & SE_DACL_PRESENT.0 == 0 {
+                return None;
+            }
+            // SAFETY: IsValidSid succeeded for the live descriptor's owner.
+            let sid_length = unsafe { GetLengthSid(owner) } as usize;
+            let acl_length =
+                usize::try_from(info.AclBytesInUse.checked_add(info.AclBytesFree)?).ok()?;
+            if !(8..=68).contains(&sid_length) || !(8..=65_535).contains(&acl_length) {
+                return None;
+            }
+            // SAFETY: native APIs validated both descriptor components and reported their sizes.
+            let (owner, acl) = unsafe {
+                (
+                    std::slice::from_raw_parts(owner.0.cast::<u8>(), sid_length),
+                    std::slice::from_raw_parts(dacl.cast::<u8>(), acl_length),
+                )
+            };
+            super::install_acl_is_read_only(owner, acl, ancestor)?;
+            let mut digest = Sha256::new();
+            digest.update(control.to_le_bytes());
+            digest.update(owner);
+            digest.update(acl);
+            Some(digest.finalize().into())
+        })();
+        if !descriptor.0.is_null() {
+            // SAFETY: GetSecurityInfo uses LocalAlloc, including a partial returned descriptor.
+            unsafe { windows::Win32::Foundation::LocalFree(Some(HLOCAL(descriptor.0))) };
+        }
+        evidence
+    }
+
+    fn known_folder(folder: &GUID) -> Result<Vec<u16>, ()> {
         // SAFETY: the shell returns a CoTaskMem-allocated, NUL-terminated UTF-16 string.
-        let raw = unsafe { SHGetKnownFolderPath(&FOLDERID_ProgramData, KF_FLAG_DEFAULT, None) }
-            .map_err(|_| ())?;
+        let raw = unsafe { SHGetKnownFolderPath(folder, KF_FLAG_DEFAULT, None) }.map_err(|_| ())?;
         if raw.0.is_null() {
             return Err(());
         }
@@ -171,6 +638,32 @@ mod platform {
         }
         path.push(0);
         Ok(path)
+    }
+
+    fn known_folder_location(program_data: &[u16]) -> Option<(Vec<u16>, Vec<Vec<u16>>)> {
+        let path = program_data.strip_suffix(&[0])?;
+        let mut mount_buffer = [0_u16; 32_768];
+        // SAFETY: `program_data` is a NUL-terminated known-folder path and output is bounded.
+        unsafe { GetVolumePathNameW(PCWSTR(program_data.as_ptr()), &mut mount_buffer) }.ok()?;
+        let mount = terminated_value(&mount_buffer)?;
+        let components = relative_components(path, mount)?;
+
+        let mut volume_buffer = [0_u16; 64];
+        // SAFETY: the returned mount path is NUL-terminated and output is bounded.
+        unsafe {
+            GetVolumeNameForVolumeMountPointW(PCWSTR(mount_buffer.as_ptr()), &mut volume_buffer)
+        }
+        .ok()?;
+        let normalized = normalize_final_path(terminated_value(&volume_buffer)?)?;
+        (volume_guid_root(&normalized).as_deref() == Some(normalized.as_slice())).then_some(())?;
+        let mut volume_name = normalized;
+        volume_name.push(0);
+        Some((volume_name, components))
+    }
+
+    fn terminated_value(buffer: &[u16]) -> Option<&[u16]> {
+        let end = buffer.iter().position(|unit| *unit == 0)?;
+        (end != 0 && buffer[end..].iter().all(|unit| *unit == 0)).then_some(&buffer[..end])
     }
 
     #[derive(Clone, Debug, PartialEq)]
@@ -255,34 +748,60 @@ mod platform {
         Some(path.get(..root_end)?.to_vec())
     }
 
-    fn open_absolute_directory(program_data: &[u16]) -> Option<HeldHandle> {
-        let path = program_data.strip_suffix(&[0])?;
-        if path.len() < 3 || path[1] != ':' as u16 || path[2] != '\\' as u16 {
-            return None;
+    fn open_volume_root(volume_name: &[u16]) -> Option<HeldHandle> {
+        let access =
+            (FILE_TRAVERSE | FILE_READ_EA | FILE_READ_ATTRIBUTES | READ_CONTROL | SYNCHRONIZE).0;
+        // SAFETY: this is a validated NUL-terminated volume GUID root with no output pointers.
+        let handle = unsafe {
+            CreateFileW(
+                PCWSTR(volume_name.as_ptr()),
+                access,
+                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                None,
+                OPEN_EXISTING,
+                FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
+                None,
+            )
         }
-        let mut nt_path = "\\??\\".encode_utf16().collect::<Vec<_>>();
-        nt_path.extend_from_slice(path);
-        nt_path.push(0);
-        open(None, &nt_path, true, false)
+        .ok()?;
+        Some(HeldHandle(handle))
     }
     fn open_relative_directory(root: HANDLE, name: &str) -> Option<HeldHandle> {
-        let mut name = name.encode_utf16().collect::<Vec<_>>();
+        open_relative_directory_units(root, &name.encode_utf16().collect::<Vec<_>>())
+    }
+    fn open_relative_directory_units(root: HANDLE, name: &[u16]) -> Option<HeldHandle> {
+        let mut name = name.to_vec();
         name.push(0);
-        open(Some(root), &name, true, false)
+        open(Some(root), &name, true, false, FILE_SHARE_READ)
     }
     fn open_relative_file(root: HANDLE, name: &str, writable: bool) -> Option<HeldHandle> {
         let mut name = name.encode_utf16().collect::<Vec<_>>();
         name.push(0);
-        open(Some(root), &name, false, writable)
+        open(Some(root), &name, false, writable, Default::default())
     }
     fn open(
         root: Option<HANDLE>,
         name: &[u16],
         directory: bool,
         writable: bool,
+        share: FILE_SHARE_MODE,
     ) -> Option<HeldHandle> {
-        let bytes = name.len().checked_sub(1)?.checked_mul(2)?;
-        let length = u16::try_from(bytes).ok()?;
+        open_existing(root, name, directory, writable, share).ok()
+    }
+
+    fn open_existing(
+        root: Option<HANDLE>,
+        name: &[u16],
+        directory: bool,
+        writable: bool,
+        share: FILE_SHARE_MODE,
+    ) -> Result<HeldHandle, NTSTATUS> {
+        let units = name.strip_suffix(&[0]).ok_or(STATUS_INVALID_PARAMETER)?;
+        if units.is_empty() || units.contains(&0) {
+            return Err(STATUS_INVALID_PARAMETER);
+        }
+        let bytes = units.len().checked_mul(2).ok_or(STATUS_INVALID_PARAMETER)?;
+        let length = u16::try_from(bytes).map_err(|_| STATUS_INVALID_PARAMETER)?;
         let unicode = UNICODE_STRING {
             Length: length,
             MaximumLength: length,
@@ -324,18 +843,18 @@ mod platform {
                 &mut io,
                 None,
                 Default::default(),
-                if directory {
-                    FILE_SHARE_READ
-                } else {
-                    Default::default()
-                },
+                share,
                 FILE_OPEN,
                 options,
                 None,
                 0,
             )
         };
-        status.is_ok().then_some(HeldHandle(handle))
+        if status.is_ok() {
+            Ok(HeldHandle(handle))
+        } else {
+            Err(status)
+        }
     }
 
     #[derive(Clone, Debug, PartialEq)]
@@ -347,7 +866,7 @@ mod platform {
     }
 
     #[derive(Clone, Copy)]
-    enum ObjectKind {
+    pub(super) enum ObjectKind {
         Root,
         Directory,
         File { expected_length: i64 },
@@ -378,7 +897,7 @@ mod platform {
         })?
     }
 
-    fn verify_identity(handle: HANDLE, kind: ObjectKind) -> Option<ObjectEvidence> {
+    pub(super) fn verify_identity(handle: HANDLE, kind: ObjectKind) -> Option<ObjectEvidence> {
         let mut tag = FILE_ATTRIBUTE_TAG_INFO::default();
         // SAFETY: `tag` is the exact FileAttributeTagInfo output type.
         unsafe {
@@ -555,12 +1074,58 @@ mod platform {
     }
 
     fn is_direct_child(parent: &[u16], child: &[u16], name: &str) -> bool {
+        is_direct_child_units(parent, child, &name.encode_utf16().collect::<Vec<_>>())
+    }
+
+    fn is_direct_child_units(parent: &[u16], child: &[u16], name: &[u16]) -> bool {
         let mut expected = parent.to_vec();
         if expected.last() != Some(&(b'\\' as u16)) {
             expected.push(b'\\' as u16);
         }
+        let Ok(name) = String::from_utf16(name) else {
+            return false;
+        };
         expected.extend(name.to_lowercase().encode_utf16());
         child == expected
+    }
+
+    pub(super) fn anchor_chain_matches(
+        volume_root: &ObjectEvidence,
+        components: &[Vec<u16>],
+        program_data: &[ObjectEvidence],
+        directory: &ObjectEvidence,
+        provision: &ObjectEvidence,
+        actor: &ObjectEvidence,
+    ) -> bool {
+        directory_chain_matches(volume_root, components, program_data, directory)
+            && [provision, actor]
+                .iter()
+                .all(|evidence| evidence.id.VolumeSerialNumber == volume_root.id.VolumeSerialNumber)
+            && is_direct_child(&directory.final_path, &provision.final_path, PROVISION)
+            && is_direct_child(&directory.final_path, &actor.final_path, ACTOR)
+    }
+
+    fn directory_chain_matches(
+        volume_root: &ObjectEvidence,
+        components: &[Vec<u16>],
+        program_data: &[ObjectEvidence],
+        directory: &ObjectEvidence,
+    ) -> bool {
+        if components.len() != program_data.len() || components.is_empty() {
+            return false;
+        }
+        let serial = volume_root.id.VolumeSerialNumber;
+        let mut parent = volume_root;
+        for (component, evidence) in components.iter().zip(program_data) {
+            if evidence.id.VolumeSerialNumber != serial
+                || !is_direct_child_units(&parent.final_path, &evidence.final_path, component)
+            {
+                return false;
+            }
+            parent = evidence;
+        }
+        directory.id.VolumeSerialNumber == serial
+            && is_direct_child(&parent.final_path, &directory.final_path, DIRECTORY)
     }
 
     fn dacl_matches(handle: HANDLE, runtime: &TokenSid, runtime_mask: u32) -> bool {
@@ -700,7 +1265,12 @@ mod platform {
     fn token_sid() -> Option<TokenSid> {
         let mut token = HANDLE::default();
         unsafe { OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token) }.ok()?;
-        let result = (|| {
+        let result = token_sid_for_handle(token);
+        unsafe { CloseHandle(token) }.ok()?;
+        result
+    }
+    fn token_sid_for_handle(token: HANDLE) -> Option<TokenSid> {
+        (|| {
             let mut needed = 0u32;
             let _ = unsafe { GetTokenInformation(token, TokenUser, None, 0, &mut needed) };
             if needed < size_of::<TOKEN_USER>() as u32 {
@@ -748,9 +1318,25 @@ mod platform {
                 return None;
             }
             Some(TokenSid { storage: sid })
-        })();
-        unsafe { CloseHandle(token) }.ok()?;
-        result
+        })()
+    }
+    pub(super) fn current_process_is_local_system() -> bool {
+        token_sid()
+            .zip(well_known_sid(WinLocalSystemSid))
+            .is_some_and(|(actual, expected)| unsafe {
+                EqualSid(actual.as_psid(), expected.as_psid()).is_ok()
+            })
+    }
+    pub(super) fn token_sid_digest(token: HANDLE) -> Option<[u8; 32]> {
+        let sid = token_sid_for_handle(token)?;
+        let length = unsafe { windows::Win32::Security::GetLengthSid(sid.as_psid()) } as usize;
+        let system = well_known_sid(WinLocalSystemSid)?;
+        if !(8..=sid.storage.0.len()).contains(&length)
+            || unsafe { EqualSid(sid.as_psid(), system.as_psid()) }.is_ok()
+        {
+            return None;
+        }
+        super::candidate04_owner_sid_digest(&sid.storage.0[..length])
     }
     pub(super) struct HeldHandle(pub(super) HANDLE);
     impl Drop for HeldHandle {
@@ -841,31 +1427,50 @@ mod platform {
 }
 
 #[cfg(target_os = "windows")]
+pub(crate) use platform::{FreshProvisionObservation, InstallFileEvidence, ProtectedInstall};
+
+#[cfg(target_os = "windows")]
+pub(crate) fn current_process_is_local_system() -> bool {
+    platform::current_process_is_local_system()
+}
+
+#[cfg(target_os = "windows")]
+pub(crate) fn token_sid_digest(token: windows::Win32::Foundation::HANDLE) -> Option<[u8; 32]> {
+    platform::token_sid_digest(token)
+}
+
+#[cfg(target_os = "windows")]
 pub struct D07Anchor {
-    root: platform::HeldHandle,
-    directory: platform::HeldHandle,
+    directory_anchor: platform::MachineDirectoryAnchor,
     provision: platform::HeldHandle,
     actor: platform::HeldHandle,
-    token_sid: platform::TokenSid,
-    root_evidence: platform::ObjectEvidence,
-    directory_evidence: platform::ObjectEvidence,
     provision_evidence: platform::ObjectEvidence,
     actor_evidence: platform::ObjectEvidence,
-    volume: platform::VolumeProfile,
 }
 #[cfg(target_os = "windows")]
 impl D07Anchor {
     /// The retained handle closes the post-D07 replacement race; write code must revalidate it first.
     pub fn revalidate_before_actor_write(&self) -> bool {
-        platform::volume_profile(self.root.0).as_ref() == Some(&self.volume)
-            && platform::verify_root(self.root.0).as_ref() == Some(&self.root_evidence)
-            && platform::verify_directory(self.directory.0, &self.token_sid).as_ref()
-                == Some(&self.directory_evidence)
-            && platform::verify_file(self.provision.0, &self.token_sid, 0x0012_0089, 12_288)
-                .as_ref()
+        self.directory_anchor.revalidate()
+            && platform::verify_file(
+                self.provision.0,
+                &self.directory_anchor.token_sid,
+                0x0012_0089,
+                12_288,
+            )
+            .as_ref()
                 == Some(&self.provision_evidence)
-            && platform::verify_file(self.actor.0, &self.token_sid, 0x0012_008b, 135_168).as_ref()
+            && platform::verify_file(
+                self.actor.0,
+                &self.directory_anchor.token_sid,
+                0x0012_008b,
+                135_168,
+            )
+            .as_ref()
                 == Some(&self.actor_evidence)
+            && self
+                .directory_anchor
+                .records_match(&self.provision_evidence, &self.actor_evidence)
     }
 }
 #[cfg(not(target_os = "windows"))]
@@ -884,10 +1489,54 @@ pub enum D07StorageVerdict {
 pub enum D07StorageFailure {
     NotWindows,
     ProgramDataUnavailable,
+    VolumePathUnproven,
+    VolumeRootOpenUnproven,
+    VolumeRootIdentityUnproven,
     LocalFixedNtfsUnproven,
-    MissingComponent,
-    DirectoryAnchorUnproven,
-    DaclUnproven,
+    RuntimeSidUnproven,
+    ProgramDataComponentMissing,
+    ProgramDataComponentIdentityUnproven,
+    DisplayDeckDirectoryMissing,
+    DisplayDeckDirectoryDaclUnproven,
+    DisplayDeckDirectoryIdentityUnproven,
+    ProvisionRecordMissing,
+    ProvisionRecordDaclUnproven,
+    ProvisionRecordIdentityUnproven,
+    ActorRecordMissing,
+    ActorRecordDaclUnproven,
+    ActorRecordIdentityUnproven,
+    AnchorChainMismatch,
+    RevalidationFailed,
+}
+impl D07StorageFailure {
+    pub const fn code(self) -> &'static str {
+        match self {
+            Self::NotWindows => "D07_NOT_WINDOWS",
+            Self::ProgramDataUnavailable => "D07_PROGRAM_DATA_UNAVAILABLE",
+            Self::VolumePathUnproven => "D07_VOLUME_PATH_UNPROVEN",
+            Self::VolumeRootOpenUnproven => "D07_VOLUME_ROOT_OPEN_UNPROVEN",
+            Self::VolumeRootIdentityUnproven => "D07_VOLUME_ROOT_IDENTITY_UNPROVEN",
+            Self::LocalFixedNtfsUnproven => "D07_LOCAL_FIXED_NTFS_UNPROVEN",
+            Self::RuntimeSidUnproven => "D07_RUNTIME_SID_UNPROVEN",
+            Self::ProgramDataComponentMissing => "D07_PROGRAM_DATA_COMPONENT_MISSING",
+            Self::ProgramDataComponentIdentityUnproven => {
+                "D07_PROGRAM_DATA_COMPONENT_IDENTITY_UNPROVEN"
+            }
+            Self::DisplayDeckDirectoryMissing => "D07_DISPLAYDECK_DIRECTORY_MISSING",
+            Self::DisplayDeckDirectoryDaclUnproven => "D07_DISPLAYDECK_DIRECTORY_DACL_UNPROVEN",
+            Self::DisplayDeckDirectoryIdentityUnproven => {
+                "D07_DISPLAYDECK_DIRECTORY_IDENTITY_UNPROVEN"
+            }
+            Self::ProvisionRecordMissing => "D07_PROVISION_RECORD_MISSING",
+            Self::ProvisionRecordDaclUnproven => "D07_PROVISION_RECORD_DACL_UNPROVEN",
+            Self::ProvisionRecordIdentityUnproven => "D07_PROVISION_RECORD_IDENTITY_UNPROVEN",
+            Self::ActorRecordMissing => "D07_ACTOR_RECORD_MISSING",
+            Self::ActorRecordDaclUnproven => "D07_ACTOR_RECORD_DACL_UNPROVEN",
+            Self::ActorRecordIdentityUnproven => "D07_ACTOR_RECORD_IDENTITY_UNPROVEN",
+            Self::AnchorChainMismatch => "D07_ANCHOR_CHAIN_MISMATCH",
+            Self::RevalidationFailed => "D07_REVALIDATION_FAILED",
+        }
+    }
 }
 #[cfg(target_os = "windows")]
 pub fn inspect_machine_actor_storage() -> D07StorageVerdict {
@@ -897,9 +1546,119 @@ pub fn inspect_machine_actor_storage() -> D07StorageVerdict {
 pub fn inspect_machine_actor_storage() -> D07StorageVerdict {
     D07StorageVerdict::NoGo(D07StorageFailure::NotWindows)
 }
-#[cfg(all(test, not(target_os = "windows")))]
+#[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fresh_absence_never_conflates_open_failures_with_missing_leaf() {
+        assert!(is_exact_leaf_absence(0xc000_0034_u32 as i32));
+        for status in [
+            0,
+            1,
+            0x0000_0103, // success / informational / pending
+            0xc000_000d, // invalid parameter
+            0xc000_0022, // access denied
+            0xc000_0033, // invalid object name
+            0xc000_0035, // name collision
+            0xc000_003a, // missing path, not a proven missing leaf
+            0xc000_0043, // sharing violation
+            0xc000_0056, // delete pending
+            0xc000_00ba, // existing directory
+            0xc000_050b, // reparse encountered
+            0xffff_ffff_u32,
+        ] {
+            assert!(!is_exact_leaf_absence(status as i32), "status {status:08x}");
+        }
+        #[cfg(target_os = "windows")]
+        assert!(is_exact_leaf_absence(
+            windows::Win32::Foundation::STATUS_OBJECT_NAME_NOT_FOUND.0
+        ));
+    }
+
+    #[test]
+    fn install_acl_rejects_untrusted_writes_and_malformed_entries() {
+        let system = [1, 1, 0, 0, 0, 0, 0, 5, 18, 0, 0, 0];
+        let admins = [1, 2, 0, 0, 0, 0, 0, 5, 32, 0, 0, 0, 32, 2, 0, 0];
+        let user = [1, 1, 0, 0, 0, 0, 0, 5, 11, 0, 0, 0];
+        let acl = |mask: u32, flags: u8, kind: u8| {
+            let mut bytes = vec![2, 0, 0, 0, 3, 0, 0, 0];
+            for (sid, rights, ace_flags, ace_type) in [
+                (system.as_slice(), 0x001f_01ff_u32, 0, 0),
+                (admins.as_slice(), 0x001f_01ff_u32, 0, 0),
+                (user.as_slice(), mask, flags, kind),
+            ] {
+                bytes.extend([ace_type, ace_flags]);
+                bytes.extend(((8 + sid.len()) as u16).to_le_bytes());
+                bytes.extend(rights.to_le_bytes());
+                bytes.extend(sid);
+            }
+            let length = bytes.len() as u16;
+            bytes[2..4].copy_from_slice(&length.to_le_bytes());
+            bytes
+        };
+        let read = acl(0x0012_00a9, 0x13, 0);
+        assert_eq!(install_acl_is_read_only(&system, &read, false), Some(()));
+        assert_eq!(install_acl_is_read_only(&admins, &read, false), Some(()));
+        assert_eq!(install_acl_is_read_only(&user, &read, false), None);
+        for mask in [
+            0x2, 0x4, 0x10, 0x40, 0x100, 0x10000, 0x40000, 0x80000, 0x10000000, 0x40000000,
+            0x02000000, 0x200,
+        ] {
+            assert_eq!(
+                install_acl_is_read_only(&system, &acl(mask, 0, 0), false),
+                None,
+                "mask {mask:x}"
+            );
+        }
+        assert_eq!(
+            install_acl_is_read_only(&system, &acl(0x6, 0, 0), true),
+            Some(())
+        );
+        assert_eq!(
+            install_acl_is_read_only(&system, &acl(0x40, 0, 0), true),
+            None
+        );
+        assert_eq!(
+            install_acl_is_read_only(&system, &acl(0xa000_0000, 0, 0), false),
+            Some(())
+        );
+        assert_eq!(
+            install_acl_is_read_only(&system, &acl(0x1000_0000, 0x0b, 0), false),
+            Some(())
+        );
+        for kind in [1, 5, 9, 0xff] {
+            assert_eq!(
+                install_acl_is_read_only(&system, &acl(0x0012_00a9, 0x08, kind), false),
+                None
+            );
+        }
+        assert_eq!(
+            install_acl_is_read_only(&system, &acl(0, 0x80, 0), false),
+            None
+        );
+        for length in 0..read.len() {
+            assert_eq!(
+                install_acl_is_read_only(&system, &read[..length], false),
+                None
+            );
+        }
+        for (offset, value) in [
+            (0, 4),
+            (1, 1),
+            (4, 65),
+            (6, 1),
+            (10, 0),
+            (15, 2),
+            (16, 2),
+            (17, 16),
+        ] {
+            let mut malformed = read.clone();
+            malformed[offset] = value;
+            assert_eq!(install_acl_is_read_only(&system, &malformed, false), None);
+        }
+    }
+
     #[test]
     fn non_windows_storage_is_always_no_go() {
         #[cfg(not(target_os = "windows"))]
@@ -907,5 +1666,31 @@ mod tests {
             inspect_machine_actor_storage(),
             D07StorageVerdict::NoGo(D07StorageFailure::NotWindows)
         ));
+    }
+
+    #[test]
+    fn d07_relative_path_and_failure_codes_are_bounded() {
+        let path = r"C:\ProgramData\DisplayDeck"
+            .encode_utf16()
+            .collect::<Vec<_>>();
+        let mount = r"C:\".encode_utf16().collect::<Vec<_>>();
+        assert_eq!(
+            relative_components(&path, &mount),
+            Some(vec![
+                "ProgramData".encode_utf16().collect(),
+                "DisplayDeck".encode_utf16().collect(),
+            ])
+        );
+        assert!(relative_components(
+            &r"C:\ProgramData\..\Windows"
+                .encode_utf16()
+                .collect::<Vec<_>>(),
+            &mount,
+        )
+        .is_none());
+        assert_eq!(
+            D07StorageFailure::AnchorChainMismatch.code(),
+            "D07_ANCHOR_CHAIN_MISMATCH"
+        );
     }
 }

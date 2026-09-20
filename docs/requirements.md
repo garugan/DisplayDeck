@@ -1,5 +1,18 @@
 # DisplayDeck 要件定義
 
+## v0.1.0の確定範囲（2026-09-21）
+
+Windows上のディスプレイ構成・現在の表示モードを安全に取得し、診断情報として確認・出力するread-onlyアプリを提供する。
+
+- 含む: Display列挙、現在モード取得、read-only UI、diagnostic JSON、fail-closed、Installer、uninstall。
+- 含まない: Display設定変更、Apply / Restore、WAL、crash recovery、watchdog、mutation safety、Gate B。これらはv0.2以降の対象であり、v0.1.0の完成条件ではない。
+
+取得・検証できない情報は推測せず、不明・未対応・エラーとして表示する。read-only起動にWAL検査やwatchdogを要件として課さない。Windowsの対応範囲は検証済みexact cellに限る。
+
+以下は従来のmutation設計を含む記録である。「初期版」「初期リリース」のmutation要件はv0.2以降として読み、v0.1.0については本節を優先する。
+
+---
+
 最終更新: 2026-08-05  
 状態: Tauri移行後の設計案。再レビュー・実装・技術スパイク未承認。
 

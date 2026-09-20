@@ -142,9 +142,11 @@ DD-FR-001で上記semantic lifecycleは決定した。2026-08-13にDD-FR-002-D01
 
 ### Q04 — Installer、署名、install mode（旧DDR-Q04）
 
-- **Status**: Decision required
+- **Status**: Decision required (mutation-track R2 subset approved 2026-08-31)
 - **Question**: NSIS per-machine/per-user、MSI必要性、certificate/timestamp/revocation、protected install budget。
 - **Safe proposal**: signed NSIS per-machine、protected root、runtime asInvoker、machine maintenance/mutation gateとall-session actor recordによるterminal-clean gate。MSI比較。
+- **Mutation-track subset decision (approved 2026-08-31)**: `GATE-A-MUTATION-ADDENDUM-01-R2`として、fixed-path bounded manifest + detached PKCS#7、Authenticode chain policy、Gate Bで固定するsingle publisher certificate SHA-256、opened actor image SHA-256をall-matchにする。R2 sourceはpublisher digest unsetで常にdenyし、actual certificate、timestamp/revocation、sign/package実行はこのQ04の未決事項として残す。
+- **Implementation constraints (2026-09-06)**: actor full-file hashを含むmanifestの最終hashを同じactorへ埋め込むと循環するため、external manifest pin bindingをactivation前に確定する。現在のzero pinは未設定sentinelである。R2 foundationはchain policyとfixed install handle/ACL検証のsourceを持つが、revocation/timestamp、loaded process-image proof、initial provision grantは未接続。install ACLはSYSTEM/Administrators owner限定で、TrustedInstaller ownerや実cell default ACLの適合を推測しない。Candidate 04終端fixtureのlinked version不整合とdecoderのreject結果はimplementation-plan 9.12、install anchorの保守的制約は9.13を参照する。
 - **Owner**: Release + Security + Budget owner
 - **Block**: Phase 8/public release
 

@@ -1,10 +1,23 @@
 # DisplayDeck
 
-Windows向けのTauri 2デスクトップアプリです。DisplayDeck 0.1.0は、ディスプレイ情報と利用可能なmode候補を表示するread-only MVPです。
+Windows向けのTauri 2デスクトップアプリです。DisplayDeck v0.1.0は、ディスプレイ構成・現在の表示モードを安全に取得し、診断情報として確認・出力するread-onlyアプリです。
 
-## 現在の状態
+## v0.1.0の範囲
 
-- Gate C承認済み、read-only MVP完成
+- Display列挙、現在モード取得、read-only UI
+- diagnostic JSON出力
+- fail-closed（取得・検証できない情報を推測で補わず、不明・エラーとして扱う）
+- Installer、uninstall
+
+Display設定変更、Apply / Restore、WAL、crash recovery、watchdog、mutation safety、Gate Bはv0.1.0に含めず、v0.2以降の対象とします。これらはv0.1.0の完成条件・リリース前提ではありません。
+
+## リリース進捗
+
+現行のチェックリストは[実装計画のv0.1.0 Release / v0.2 Mutation](docs/implementation-plan.md#v010-release)で管理します。v0.1.0はRC固定、Installer SHA256固定、最終Smoke Test、証跡更新、Gate C判定、Releaseを未完了として追跡します。v0.2 Mutationは別トラックです。
+
+## 過去のrelease 01検証・承認記録
+
+- release 01はGate C承認済み、read-only MVP完成（現行チェックリストの完了を意味しない）
 - Windows設定を変更するdisplay APIは実行しない
 - `Apply`はdisabled、15秒transactionはfake simulationのみ
 - actual D07は`DirectoryAnchorUnproven`でNo-Go
@@ -25,11 +38,12 @@ Product source commit: e598cc4
 
 - current display / mode / candidateまたは変更不能理由の表示
 - read-only support assessment
-- fake safety transaction
 - operator操作によるlocal diagnostic JSON export
 - current-user NSIS install / launch / uninstall
 
 解像度、refresh rate、配置、registry、Windows display profileは変更しません。
+
+既存のfake simulationとsafety coreは将来機能の開発資産であり、v0.1.0の提供機能には数えません。上記の範囲定義は、検証済みrelease 01のartifact内容を変更したという意味ではありません。
 
 ## Build
 

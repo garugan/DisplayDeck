@@ -8,8 +8,9 @@ use std::{
 };
 
 use displaydeck_safety::{
-    current_tick_ms, inspect_machine_actor_storage, random_id, ActorStatus, D07StorageVerdict,
-    SafetyEngine, SafetyStatus, WatchdogCommand, WatchdogStart, WorkerGo, WorkerGrant, WorkerHello,
+    current_tick_ms, inspect_machine_actor_storage, random_id, run_system_provision_handshake,
+    run_system_provision_service, ActorStatus, D07StorageFailure, D07StorageVerdict, SafetyEngine,
+    SafetyStatus, WatchdogCommand, WatchdogStart, WorkerGo, WorkerGrant, WorkerHello,
     WorkerIdentity, WorkerResult, WorkerRole,
 };
 use sha2::{Digest, Sha256};
@@ -28,8 +29,12 @@ fn main() {
         [] => run_watchdog(),
         [argument] if argument == "--worker" => run_worker(),
         [argument] if argument == "--d07-inspect" => return print_d07_verdict(),
+        [argument] if argument == "--provision-handshake" => run_system_provision_handshake(),
+        [argument] if argument == "--provision-service" => run_system_provision_service(),
         [argument] if argument == "--help" || argument == "-h" => {
-            println!("Usage: displaydeck-actor [--worker | --d07-inspect]");
+            println!(
+                "Usage: displaydeck-actor [--worker | --d07-inspect | --provision-handshake | --provision-service]"
+            );
             return;
         }
         _ => {
@@ -50,8 +55,8 @@ fn print_d07_verdict() {
             println!("MutationAuthorized: false");
             return;
         }
-        D07StorageVerdict::Go(_) => "DaclUnproven".to_string(),
-        D07StorageVerdict::NoGo(reason) => format!("{reason:?}"),
+        D07StorageVerdict::Go(_) => D07StorageFailure::RevalidationFailed.code(),
+        D07StorageVerdict::NoGo(reason) => reason.code(),
     };
     println!("D07: NO_GO:{failure}");
     println!("MutationAuthorized: false");
