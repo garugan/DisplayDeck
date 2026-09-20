@@ -35,6 +35,12 @@ Windows保存済みmanifestも`RELEASED` / `APPROVED`へ同期済みです。Ins
 
 承認・完了記録: [v0.1.0 RC3 Gate C承認](docs/windows-validation-history.md#v010-rc3-gate-c承認2026-09-21)。
 
+## v0.2の開発状況
+
+単一Displayでmode選択・Apply・Keep／自動Restoreを通常利用できる版を目標に、開発を再開しました。既存実装の接続状況を確認し、17 unit tests・1 process testとWindows向けcross-checkはPASSしています。
+
+現在はM1のprovision authority・machine gate・durable writerの未接続部分が最初の作業です。Windowsで実行する手順はまだありません。詳細は[実装計画](docs/implementation-plan.md#v02-mutation)を参照してください。
+
 ## 過去のrelease 01検証・承認記録
 
 - release 01はGate C承認済み、read-only MVP完成（現行チェックリストの完了を意味しない）

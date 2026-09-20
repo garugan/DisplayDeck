@@ -48,14 +48,32 @@ manifestには製品source commit、RC識別子、artifact名・size・SHA256、
 
 ## v0.2 Mutation
 
-- [ ] Display mode変更
-- [ ] Restore
-- [ ] WAL
-- [ ] crash recovery
-- [ ] watchdog
-- [ ] Directory Anchor
-- [ ] Gate B
+2026-09-21 ownerから「ではv0.2を進めていきましょう」と開始指示を受領。完成目標は、承認した単一Display環境でmode選択 → Apply → Keep / 自動Restoreを通常利用できるInstallerをGate C承認まで進めること。M4の実機成功だけではv0.2完成としない。source作業は既存Gate A / R1 / R2の許可範囲から再開し、Windows実行・pin有効化・署名・Gate Bをこの開始指示だけで承認済みにしない。
+
+- [x] 既存M1〜M3の実呼出経路と不足を確認
+- [x] 再開時の非変更baseline確認（17 unit + 1 process test、Windows cross-check）
+- [ ] Directory Anchor / provision authority / machine gate / writerの接続
+- [ ] WAL / crash recovery / 独立watchdogのproduction接続
+- [ ] Display mode変更 / Restore / typed UIの接続
+- [ ] Gate B（exact cell・command・復旧手順の承認）
 - [ ] Mutation実機試験
+- [ ] 通常利用の仕上げ・Installer RC固定・Smoke Test
+- [ ] Gate C / v0.2.0 Release
+
+### 再開時点の実装差分（2026-09-21）
+
+| 項目 | コードで確認した現状 | 次の実装 |
+| --- | --- | --- |
+| D07 / Directory Anchor | `machine_storage.rs`にvolume rootからの保持handle、relative open、ACL / identity再検証あり。`FreshProvisionObservation`は既存directory内のrecord不在を観測するだけ | gate内のfresh-create authority、protected directory初期作成、record publicationへ接続。absence観測だけでwriteを許可しない |
+| provision service | `provision_handshake` → identity → manifest/package検証 → fresh observation → `PROVISION_ANCHOR_NOT_IMPLEMENTED`。publisher / manifest pinはzero | loaded-image proof、machine gate、Candidate 04 writerを接続。pinのzeroは維持 |
+| authority未決事項 | actor全体hashを含むmanifestのhashを同じactorへ埋め込むと循環。Q04のexternal pin binding、certificate lifecycle policyが未決 | activation方式を既存Gate Aの追補で明確化する。証明書購入・署名・package生成を先行させない |
+| MAP / MAR | `provision.rs`にdecoder、exact current-link、10種のcrash-pair分類あり | 同じ分類器をtrusted handleの読取結果とdurable publicationへ接続。分類器・fixtureを増やすだけの作業はしない |
+| watchdog / WAL | `engine.rs`は`FakeApply` / `FakeRestore`、Tauriはtemporary test storageとsimulation | machine→display→user lock、production journal、lease / worker exit、parent loss / takeoverを接続 |
+| Apply / UI | `display-probe/src/mutation.rs`はread-only exact cell判定。`begin_display_change`はsimulation=falseを拒否 | workerの限定FFIとfresh readback、候補tokenでの開始、presentation / Keep / Revertを接続 |
+
+最小実装順は **M1の残り → M2のproduction安全経路 → M3のworker/UI → Gate B/M4 → 固定RC/Gate C**。M1では先にmachine gateとcreatorの保持handle条件を実呼出経路へ組み込み、未実証のloaded-image / signing authorityは明示的にdenyのまま残す。外部manifest pinとcertificate policyは有効化前に解決する。実機の単一Display化、対象resolution、blind recoveryは推測せずGate Bで固定する。
+
+再開検証結果: `cargo test -p displaydeck-safety --all-targets --offline --locked`（17 unit + 1 process PASS）、`cargo check -p displaydeck-safety --all-targets --target x86_64-pc-windows-msvc --offline --locked`（PASS）。これはfake / source検証であり、M1完了やWindows実機安全性の証明ではない。今回、製品runtimeは変更せず、Windows操作・display API・machine-data write・依存追加は0件。
 
 このチェックリストを現行の進捗管理の正本とする。過去のrelease 01承認やfake実装の実績から自動的に完了扱いにはしない。v0.2の完了はv0.1.0 Releaseの前提ではない。項目の並びは実行順序や実行許可を意味せず、mutation実機操作には従来どおり事前のGate B承認が必要である。
 
