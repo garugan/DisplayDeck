@@ -1,6 +1,24 @@
 # DisplayDeck Windows検証履歴・手順書
 
-## RC3最終Smoke Test（現行手順）
+## RC3 Smoke完了・releaseファイルの固定（現行手順）
+
+2026-09-21にhuman ownerから「検証終了　10項目オールpass」と報告された。install、起動、Display / mode表示、READ_ONLY、変更UI無効、diagnostic取得、終了後設定不変、uninstall、uninstall後設定不変の10項目をPASSとして記録した。試験時刻・diagnostic path・実cellの詳細値と試験前後のhash出力は未受領であり、捏造しない。Smokeの再実行は求めない。
+
+次は同じRC3を最終保存先へコピーし、実ファイルのSHA256を前後で確認する。build・installは行わない。本手順をcommit・push後に、PowerShellで1行ずつ実行する。
+
+```powershell
+cd D:\project\displaydeck
+git pull --ff-only
+node scripts/rc-stage.mjs
+```
+
+停止条件: cd / pull失敗時は次行へ進まない。RCのsize / SHA / source / candidate不一致、保存先既存、読取り・書込み失敗は停止して出力を共有する。既存ファイルを削除・上書きせず、失敗後も再実行しない。
+
+続行条件: `Release files staged`が表示されたらmanifest出力を共有する。保存先`D:\project\displaydeck\release\v0.1.0`にInstaller、SHA256SUMS、release-manifest、smoke-test、RELEASE_NOTES、build.logが揃う。release-manifestはGate C PENDING / STAGED_NOT_RELEASED。これは配布・Release・tag作成ではない。出力確認後、human ownerへ固定SHAとread-only範囲を明記してGate C判定を求める。
+
+ローカル検証: スクリプト構文、共用SHA検証の不一致拒否。Windowsでの実体コピーは未実施。
+
+## RC3最終Smoke Test（10項目PASS）
 
 operator提供ログでRC3のbuild / NSIS生成 / コピー後SHA照合 / `RC frozen`を確認した。
 

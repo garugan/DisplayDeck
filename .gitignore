@@ -39,3 +39,6 @@ Thumbs.db
 # Local evidence / generated artifacts
 artifacts/
 evidence/
+
+# Local frozen release artifacts (never commit installers)
+/release/v0.1.0/

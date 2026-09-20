@@ -13,29 +13,23 @@ Display設定変更、Apply / Restore、WAL、crash recovery、watchdog、mutati
 
 ## リリース進捗
 
-現行のチェックリストは[実装計画のv0.1.0 Release / v0.2 Mutation](docs/implementation-plan.md#v010-release)で管理します。v0.1.0はRC3とInstaller SHA256を固定済みです。残りは最終Smoke Test、証跡更新、Gate C判定、Releaseです。v0.2 Mutationは別トラックです。
+現行のチェックリストは[実装計画のv0.1.0 Release / v0.2 Mutation](docs/implementation-plan.md#v010-release)で管理します。v0.1.0はRC3とInstaller SHA256を固定済みです。最終Smoke Testも10項目PASSです。残りは最終releaseファイルの同一性確認、証跡確定、Gate C判定、Releaseです。v0.2 Mutationは別トラックです。
 
 ## 次に実行すること（Windows）
 
-**RC3は生成・固定済みです。再buildしません。** 次は[RC3最終Smoke Test](docs/windows-validation-history.md#rc3最終smoke-test現行手順)です。
+**RC3のSmoke Testは10項目すべてPASSです。再build・再試験は不要です。** 最後に固定RCをreleaseフォルダへコピーし、コピー前後のSHA256を照合します。
 
-まずPowerShellで1行ずつ実行します。エラーが出たら次へ進まず停止してください。
+PowerShellで1行ずつ実行してください。エラーが出たら次へ進まず停止します。
 
 ```powershell
 cd D:\project\displaydeck
 git pull --ff-only
-node scripts/rc-verify.mjs
+node scripts/rc-stage.mjs
 ```
 
-`RC3 identity PASS`が出たら、上の手順に従い、既存installがないことと試験前のDisplay設定を確認 → RC3をinstall → 起動・Display・現在モード・READ_ONLY・diagnostic JSON確認 → 終了 → uninstall → Display設定不変を確認します。詳細な操作と停止条件はリンク先にあります。
+`Release files staged`と表示されたら、その出力をチャットへ共有してください。`release/v0.1.0`へInstaller・SHA256・manifest・Smoke記録・Release Notes・buildログを保存します。既存ファイルは上書きしません。エラー時は削除・再実行せず出力を共有してください。
 
-Installerの場所:
-
-```text
-D:\project\displaydeck\artifacts\v0.1.0-rc3\DisplayDeck_0.1.0-rc3_x64-setup.exe
-```
-
-試験後も`node scripts/rc-verify.mjs`で照合し、[10項目の結果](docs/release/v0.1.0-smoke-test.md)をチャットへ共有してください。Gate Cは未判定です。
+手順: [RC3 Smoke完了・releaseファイルの固定](docs/windows-validation-history.md#rc3-smoke完了releaseファイルの固定現行手順)。Gate Cは未判定で、配布・tag作成はまだ行いません。
 
 ## 過去のrelease 01検証・承認記録
 
