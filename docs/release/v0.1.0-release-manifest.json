@@ -1,0 +1,20 @@
+{
+  "candidate": "v0.1.0-rc3",
+  "sourceCommit": "e598cc4d08a37ec6815a80a2f864f562c59ed8e6",
+  "artifact": "DisplayDeck_0.1.0_x64-setup.exe",
+  "size": 2160643,
+  "sha256": "25DEFCA4CC6DA01F350CC82E1302FF0CE1783BBCEE2A88B77EE2734E0C637EFD",
+  "versions": {
+    "node": "v22.18.0",
+    "rust": "rustc 1.97.1 (8bab26f4f 2026-07-14)",
+    "cargo": "cargo 1.97.1 (c980f4866 2026-06-30)"
+  },
+  "buildLog": "build.log",
+  "smokeTest": "PASS_OPERATOR_REPORTED_2026-09-21",
+  "artifactIdentity": "SOURCE_AND_COPY_SHA256_VERIFIED",
+  "gateC": "APPROVED",
+  "gateCApprovedOn": "2026-09-21",
+  "releaseStatus": "RELEASED",
+  "releaseTag": "v0.1.0",
+  "scope": "Read-only; limited to the Windows environment tested by the operator. No public distribution or expanded support claims."
+}

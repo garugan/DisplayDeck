@@ -13,22 +13,33 @@ Display設定変更、Apply / Restore、WAL、crash recovery、watchdog、mutati
 
 ## リリース進捗
 
-現行のチェックリストは[実装計画のv0.1.0 Release / v0.2 Mutation](docs/implementation-plan.md#v010-release)で管理します。v0.1.0はRC3とInstaller SHA256を固定済みです。最終Smoke Testも10項目PASSです。releaseコピーとのSHA256一致と証跡更新も完了しました。残りはGate C判定とReleaseです。v0.2 Mutationは別トラックです。
+現行のチェックリストは[実装計画のv0.1.0 Release / v0.2 Mutation](docs/implementation-plan.md#v010-release)で管理します。v0.1.0はRC3とInstaller SHA256を固定済みです。最終Smoke Testも10項目PASSです。releaseコピーとのSHA256一致と証跡更新も完了しました。2026-09-21にGate C承認済みです。Windows保存済みmetadataの最終同期だけ残っています。v0.2 Mutationは別トラックです。
 
-## 次に行うこと：Gate C判定
-
-**Windowsでの追加操作・再build・再試験は現在不要です。** RC3とreleaseコピーのSHA256一致を確認し、Smoke Test 10項目PASSを記録しました。
+## v0.1.0 Release承認済み
 
 ```text
 Artifact: DisplayDeck_0.1.0_x64-setup.exe
 Size: 2160643 bytes
 SHA256: 25DEFCA4CC6DA01F350CC82E1302FF0CE1783BBCEE2A88B77EE2734E0C637EFD
 Source: e598cc4d08a37ec6815a80a2f864f562c59ed8e6
+Tag: v0.1.0
 ```
 
-human ownerによる、このartifactのv0.1.0 read-only Release承認を待っています。Gate Bは不要です。現在は`STAGED_NOT_RELEASED`で、tagは未作成です。
+承認範囲は今回検証したWindows環境限定のread-only版です。public distributionは含みません。
 
-証跡: [RC3 Gate C判定待ち](docs/windows-validation-history.md#rc3-gate-c判定待ち現在地)。
+### 次に実行すること（Windows）
+
+保存済みmanifestを`PENDING`から承認済みに同期します。Installerは変更せず、再build・再試験もしません。1行ずつ実行し、エラーなら停止してください。
+
+```powershell
+cd D:\project\displaydeck
+git pull --ff-only
+node scripts/rc-finalize.mjs
+```
+
+`RELEASED v0.1.0 | Gate C APPROVED`が出たら、その出力を共有してください。
+
+承認記録と停止条件: [v0.1.0 RC3 Gate C承認](docs/windows-validation-history.md#v010-rc3-gate-c承認2026-09-21)。
 
 ## 過去のrelease 01検証・承認記録
 

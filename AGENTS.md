@@ -4,6 +4,10 @@
 
 v0.1.0 is a read-only Windows display inventory and diagnostics app. Its scope is display enumeration, current-mode acquisition, read-only UI, diagnostic JSON, fail-closed behavior, installer, and uninstall. Display-setting changes, Apply / Restore, WAL, crash recovery, watchdog, mutation safety, and Gate B belong to v0.2 or later and must not be prerequisites for completing v0.1.0. Existing mutation code and approval records are future-track assets, not v0.1.0 requirements. This scope decision does not authorize new Windows operations, mutation, or a broader release/support claim, and does not change the qualified release 01 artifact. Apply the mutation safety constraints below when working on that future track.
 
+## v0.1.0 RC3 release approval — 2026-09-21
+
+The human owner approved SHA-256 `25DEFCA4CC6DA01F350CC82E1302FF0CE1783BBCEE2A88B77EE2734E0C637EFD` (2,160,643 bytes), built from `e598cc4d08a37ec6815a80a2f864f562c59ed8e6`, as the v0.1.0 read-only release limited to the Windows environment used for the final smoke test. All ten smoke items passed and the release copy matches the tested RC3. Tag v0.1.0 must target this product source, not main with future mutation work. This does not authorize public distribution, signing, expanded support claims, or mutation. Release 01 remains historical evidence.
+
 ## Current project gate: read-only release complete, mutation-track implementation authorized
 
 The roadmap was reduced to the three human gates in `docs/implementation-plan.md` on 2026-08-24. Gate A / Stage 0 and the non-mutating Stage 1 are complete. On 2026-08-30 the actual D07 inspector returned `NO_GO:DirectoryAnchorUnproven` with `MutationAuthorized: false`; Stage 2 therefore ended with zero display API calls. The read-only Stage 3 NSIS build/install/smoke/uninstall verification is complete. On 2026-08-30 the human owner approved Gate C release 01: the 2,160,426-byte installer with SHA-256 `3307DB604C5C96B4E753D499ECB006E2209695006965F9BA7D65A1BF6F1EFD2F` is the completed read-only MVP for the recorded Windows 10 exact cell.

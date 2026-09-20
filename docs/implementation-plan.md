@@ -14,8 +14,8 @@ Display設定変更、Apply / Restore、WAL、crash recovery、watchdog、mutati
 - [x] Installer SHA256固定（RC3: `25DEFCA4CC6DA01F350CC82E1302FF0CE1783BBCEE2A88B77EE2734E0C637EFD`）
 - [x] 最終Smoke Test（2026-09-21 operator報告、10項目PASS）
 - [x] 証跡更新（RC3 / releaseコピーのSHA一致、Smoke全PASSを記録）
-- [ ] Gate C判定
-- [ ] Release
+- [x] Gate C判定（2026-09-21 human ownerがRC3の固定SHAを承認）
+- [x] Release（Gate C承認、製品sourceにv0.1.0 tag。Windows保存済みmetadata同期は現行手順参照）
 
 ## Gate C — v0.1.0 Release
 
