@@ -13,23 +13,29 @@ Display設定変更、Apply / Restore、WAL、crash recovery、watchdog、mutati
 
 ## リリース進捗
 
-現行のチェックリストは[実装計画のv0.1.0 Release / v0.2 Mutation](docs/implementation-plan.md#v010-release)で管理します。v0.1.0はRC固定、Installer SHA256固定、最終Smoke Test、証跡更新、Gate C判定、Releaseを未完了として追跡します。v0.2 Mutationは別トラックです。
+現行のチェックリストは[実装計画のv0.1.0 Release / v0.2 Mutation](docs/implementation-plan.md#v010-release)で管理します。v0.1.0はRC3とInstaller SHA256を固定済みです。残りは最終Smoke Test、証跡更新、Gate C判定、Releaseです。v0.2 Mutationは別トラックです。
 
 ## 次に実行すること（Windows）
 
-RC2はコンパイル中に中断され、Installer未生成でした。RC2を保持し、同じ固定ソースから**別フォルダにRC3を1回作成**します。PowerShellで1行ずつ実行し、途中でエラーが出たら次へ進まないでください。
+**RC3は生成・固定済みです。再buildしません。** 次は[RC3最終Smoke Test](docs/windows-validation-history.md#rc3最終smoke-test現行手順)です。
+
+まずPowerShellで1行ずつ実行します。エラーが出たら次へ進まず停止してください。
 
 ```powershell
 cd D:\project\displaydeck
 git pull --ff-only
-node scripts/rc-build.mjs
+node scripts/rc-verify.mjs
 ```
 
-今回はビルド出力が画面にも表示され、15秒ごとに待機時間が出ます。初回コンパイルは時間がかかります。`RC frozen`またはエラーが表示されるまで待ち、最後の出力をチャットへ共有してください。
+`RC3 identity PASS`が出たら、上の手順に従い、既存installがないことと試験前のDisplay設定を確認 → RC3をinstall → 起動・Display・現在モード・READ_ONLY・diagnostic JSON確認 → 終了 → uninstall → Display設定不変を確認します。詳細な操作と停止条件はリンク先にあります。
 
-保存先は`artifacts/v0.1.0-rc3`です。**再実行・RCフォルダ削除・Installer起動はまだしないでください。** 次は固定RCのSmoke Testです。
+Installerの場所:
 
-手順と停止・続行条件: [v0.1.0 RC3作成](docs/windows-validation-history.md#v010-rc3作成現行手順)。
+```text
+D:\project\displaydeck\artifacts\v0.1.0-rc3\DisplayDeck_0.1.0-rc3_x64-setup.exe
+```
+
+試験後も`node scripts/rc-verify.mjs`で照合し、[10項目の結果](docs/release/v0.1.0-smoke-test.md)をチャットへ共有してください。Gate Cは未判定です。
 
 ## 過去のrelease 01検証・承認記録
 

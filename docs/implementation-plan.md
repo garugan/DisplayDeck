@@ -10,8 +10,8 @@ Display設定変更、Apply / Restore、WAL、crash recovery、watchdog、mutati
 
 ## v0.1.0 Release
 
-- [ ] Release Candidateを固定
-- [ ] Installer SHA256固定
+- [x] Release Candidateを固定（RC3、製品source `e598cc4`）
+- [x] Installer SHA256固定（RC3: `25DEFCA4CC6DA01F350CC82E1302FF0CE1783BBCEE2A88B77EE2734E0C637EFD`）
 - [ ] 最終Smoke Test
 - [ ] 証跡更新
 - [ ] Gate C判定

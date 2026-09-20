@@ -1,6 +1,71 @@
 # DisplayDeck Windows検証履歴・手順書
 
-## v0.1.0 RC3作成（現行手順）
+## RC3最終Smoke Test（現行手順）
+
+operator提供ログでRC3のbuild / NSIS生成 / コピー後SHA照合 / `RC frozen`を確認した。
+
+```text
+Source: e598cc4d08a37ec6815a80a2f864f562c59ed8e6
+Installer: D:\project\displaydeck\artifacts\v0.1.0-rc3\DisplayDeck_0.1.0-rc3_x64-setup.exe
+Length: 2160643
+SHA256: 25DEFCA4CC6DA01F350CC82E1302FF0CE1783BBCEE2A88B77EE2734E0C637EFD
+Node: v22.18.0
+Rust: 1.97.1 (8bab26f4f 2026-07-14)
+Cargo: 1.97.1 (c980f4866 2026-06-30)
+Smoke Test: NOT_RUN
+Gate C: PENDING
+```
+
+これは新RCであり、過去のrelease 01承認を転用しない。以後buildは禁止。以下をcommit・pushした後に実施する。Gate Bは不要。
+
+### 1. 固定RCの照合
+
+PowerShellで1行ずつ実行する。cd / pull失敗時は次へ進まない。
+
+```powershell
+cd D:\project\displaydeck
+git pull --ff-only
+node scripts/rc-verify.mjs
+```
+
+`RC3 identity PASS`が出た場合だけ続行。不在・size / SHA不一致・任意のエラーなら停止し、元ファイルを保持して共有する。このスクリプトはファイル読取りのみ。
+
+### 2. clean install前の確認
+
+- `winver`画面と「デバイス マネージャー」のGPU driver情報から、記録済みWindows 10 Home 10.0.19045 x64 / RTX 4070 / driver 32.0.16.1088のcellであることを確認する。異なる場合は停止して差異を共有する。
+- 「設定 → システム → ディスプレイ」と「ディスプレイの詳細設定」で、接続Display、配置、各Displayの解像度・refresh rateを記録する。値を変更しない。
+- 「設定 → アプリ → アプリと機能」でDisplayDeckがないことを確認する。既存installがあれば今回は停止して共有する。
+
+### 3. install / launch / diagnostic
+
+エクスプローラーのアドレス欄で次のフォルダを開く。
+
+```text
+D:\project\displaydeck\artifacts\v0.1.0-rc3
+```
+
+1. `DisplayDeck_0.1.0-rc3_x64-setup.exe`をダブルクリックする。管理者として実行しない。サイレントオプションを使わない。
+2. 「次へ」、install先`%LOCALAPPDATA%\DisplayDeck`、Start Menu folder `DisplayDeck`を確認して「インストール」→「完了」。別path、昇格要求、エラー、予期しないruntime導入要求があれば停止する。
+3. Start MenuのDisplayDeckを起動する。起動失敗なら停止する。
+4. 接続Displayと現在モードが試験前の記録と一致することを確認する。
+5. 読み取り専用表示とApplyが無効であることを確認する。設定変更・simulationは実行しない。
+6. 「診断JSONを書き出す」を1回押す。表示された保存先を記録し、そのJSONをメモ帳で開いて`schemaVersion: 1`、`productMode: "READ_ONLY"`、`mutationAllowed: false`を確認する。JSONはローカルに保存し、Gitへ追加しない。
+7. appを通常終了し、WindowsのDisplay設定が試験前と同じことを確認する。予期しない変化があれば停止して共有する。
+
+### 4. uninstall / 終了確認
+
+1. タスク マネージャーの「詳細」で`displaydeck-app.exe` / `displaydeck-actor.exe`がないことを確認する。残っていれば強制終了せず停止して共有する。
+2. 「設定 → アプリ → アプリと機能 → DisplayDeck → アンインストール」で通常uninstallする。
+3. 一覧からDisplayDeckが消え、WindowsのDisplay設定が試験前と同じことを確認する。
+4. PowerShellで再度`node scripts/rc-verify.mjs`を実行し、`RC3 identity PASS`を確認する。
+
+### 5. 結果共有
+
+[10項目のSmoke Test記録](release/v0.1.0-smoke-test.md)の各項目をPASS / FAIL / 未実施で報告し、実施日時、Windows / GPU / driver、診断JSON保存先、試験前後のhash確認結果を添える。失敗時は停止地点とエラーを共有する。全PASS後に証跡更新・最終releaseファイル一式の同一性確認・human ownerのGate C判定へ進む。自動的にReleaseやtag作成へ進まない。
+
+ローカル検証: SHA確認スクリプトの構文、size不一致と同sizeの異なるbytesを拒否するテスト。実RCファイルのローカルコピーはなく、Windowsでの照合は次の操作で行う。
+
+## v0.1.0 RC3作成（成功・再build禁止）
 
 RC2状態確認結果: attempt開始 `2026-09-20T21:17:14.463Z`、build.logは9720 bytes、最終更新 `2026-09-20T21:18:22.849Z`。末尾は`Compiling tao v0.35.3`。Installer、SHA256SUMS、candidate-manifestは全て未生成。snapshotではcargo / rustc / link / makensis / tauri processは見えず、node 3件のうち2件はattempt開始前、1件は状態確認時刻のもの。RC2はCtrl+C中断、build成功未確認として保持する。既存processを一括killしない。
 
