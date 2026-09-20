@@ -15,7 +15,19 @@ Display設定変更、Apply / Restore、WAL、crash recovery、watchdog、mutati
 
 現行のチェックリストは[実装計画のv0.1.0 Release / v0.2 Mutation](docs/implementation-plan.md#v010-release)で管理します。v0.1.0はRC固定、Installer SHA256固定、最終Smoke Test、証跡更新、Gate C判定、Releaseを未完了として追跡します。v0.2 Mutationは別トラックです。
 
-次の操作: [RC再生成前の環境確認](docs/windows-validation-history.md#rc再生成前の環境確認現行手順)。`git pull --ff-only`後、`node scripts/rc-check.mjs`でread-only確認します。
+## 次に実行すること（Windows）
+
+PowerShellで次を**1行ずつ**実行してください。途中でエラーが出たら、次の行には進まず停止してください。
+
+```powershell
+cd D:\project\displaydeck
+git pull --ff-only
+node scripts/rc-check.mjs
+```
+
+[確認スクリプト](scripts/rc-check.mjs)はソースとビルド環境を読み取るだけです。build・インストール・Display設定変更は行いません。出力を全てチャットへ共有してください。未コミット変更や必要ツールの不足が表示されても、その場で修正・buildせず停止します。
+
+手順と停止・続行条件の記録: [RC再生成前の環境確認](docs/windows-validation-history.md#rc再生成前の環境確認現行手順)。
 
 ## 過去のrelease 01検証・承認記録
 
