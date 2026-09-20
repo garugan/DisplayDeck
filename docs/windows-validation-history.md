@@ -1,5 +1,23 @@
 # DisplayDeck Windows検証履歴・手順書
 
+## RC再生成前の環境確認（現行手順）
+
+operatorによるnsisフォルダ再確認でも、報告されたファイルはLength `2158751` / SHA256 `8DE2D72C5DF77A6ABA7FBDFE7555BEE1CB879A1996567E34A9FE7947D262B7C3`のみ。qualified artifactは未発見。貼付pathのescapeの有無は未確定だが、報告されたSHA不一致は確定している。元ファイルは保持する。
+
+長いPowerShellの転記崩れを避け、repository内の`scripts/rc-check.mjs`でread-only確認を行う。これはsource commitの存在、working tree、Node / Rust / Cargo、既存Tauri CLIの有無を表示するだけで、build、依存導入、Installer実行、Display API、ファイル書込みを行わない。製品source候補は過去のqualified source `e598cc4d08a37ec6815a80a2f864f562c59ed8e6`。現在のHEADを製品sourceとして自動採用しない。
+
+この手順をcommit・pushした後、Windows PowerShellで1行ずつ実行する。
+
+```powershell
+cd D:\project\displaydeck
+git pull --ff-only
+node scripts/rc-check.mjs
+```
+
+停止条件: cd / pull失敗時は次の行を実行しない。スクリプトのエラー、未コミット変更、source commit不在、必要tool不在、win32 / x64以外なら再生成へ進まない。成功・失敗どちらも出力を共有する。続行条件: clean working treeと環境が確認できたら、隔離したsource固定、固有RC保存先、1回限りのbuild / hash取得手順を準備して記録する。環境確認成功だけでbuildは開始しない。
+
+スクリプトはmacOSで構文検査・read-only実行済み。Windows実行結果は未取得。
+
 ## v0.1.0 RC再固定：既存Installerの確認（2026-09-21）
 
 現行の次のWindows操作は、このハッシュ確認だけです。実施前に本手順をcommit・pushします。build / install / launchは行いません。
