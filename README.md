@@ -13,7 +13,7 @@ Display設定変更、Apply / Restore、WAL、crash recovery、watchdog、mutati
 
 ## リリース進捗
 
-現行のチェックリストは[実装計画のv0.1.0 Release / v0.2 Mutation](docs/implementation-plan.md#v010-release)で管理します。v0.1.0はRC3とInstaller SHA256を固定済みです。最終Smoke Testも10項目PASSです。releaseコピーとのSHA256一致と証跡更新も完了しました。2026-09-21にGate C承認済みです。Windows保存済みmetadataの最終同期だけ残っています。v0.2 Mutationは別トラックです。
+現行のチェックリストは[実装計画のv0.1.0 Release / v0.2 Mutation](docs/implementation-plan.md#v010-release)で管理します。v0.1.0はRC3とInstaller SHA256を固定済みです。最終Smoke Testも10項目PASSです。releaseコピーとのSHA256一致と証跡更新も完了しました。2026-09-21にGate C承認済みです。Windows保存済みmetadataの最終同期も完了し、v0.1.0 Release作業は終了しました。v0.2 Mutationは別トラックです。
 
 ## v0.1.0 Release承認済み
 
@@ -27,19 +27,13 @@ Tag: v0.1.0
 
 承認範囲は今回検証したWindows環境限定のread-only版です。public distributionは含みません。
 
-### 次に実行すること（Windows）
+### リリース作業完了
 
-保存済みmanifestを`PENDING`から承認済みに同期します。Installerは変更せず、再build・再試験もしません。1行ずつ実行し、エラーなら停止してください。
+Windows保存済みmanifestも`RELEASED` / `APPROVED`へ同期済みです。InstallerのSHA256は変更されていません。追加のWindows操作・build・試験は不要です。
 
-```powershell
-cd D:\project\displaydeck
-git pull --ff-only
-node scripts/rc-finalize.mjs
-```
+保存先: `D:\project\displaydeck\release\v0.1.0`。製品sourceに付けた`v0.1.0`tagはpush済みです。
 
-`RELEASED v0.1.0 | Gate C APPROVED`が出たら、その出力を共有してください。
-
-承認記録と停止条件: [v0.1.0 RC3 Gate C承認](docs/windows-validation-history.md#v010-rc3-gate-c承認2026-09-21)。
+承認・完了記録: [v0.1.0 RC3 Gate C承認](docs/windows-validation-history.md#v010-rc3-gate-c承認2026-09-21)。
 
 ## 過去のrelease 01検証・承認記録
 

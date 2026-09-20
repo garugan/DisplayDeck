@@ -10,7 +10,7 @@ human ownerの承認原文:
 
 正本manifestは`docs/release/v0.1.0-release-manifest.json`。annotated tag `v0.1.0`は製品sourceに付け、annotationにSHAと承認証跡commitを記録する。mutation開発を含むmainには付けない。
 
-### Windows保存済みmetadataの最終同期（現行手順）
+### Windows保存済みmetadataの最終同期（完了・再実行不要）
 
 Windows保存済みmanifestは承認前のPENDINGなので、次の操作で承認済み記録へ同期する。Installer、SHA256SUMS、build.logは変更せず、build・install・試験も実施しない。本手順をcommit・push後、1行ずつ実行する。
 
@@ -24,7 +24,14 @@ node scripts/rc-finalize.mjs
 
 停止条件: cd / pull失敗時は次へ進まない。照合失敗、missing file、書込みエラー、`.pending`残存時は削除せず出力を共有する。続行条件: `RELEASED v0.1.0 | Gate C APPROVED`が出ればWindows保存済みmetadataの同期完了。出力を共有する。追加の承認やSmoke Testは不要。
 
-ローカル検証は構文と非Windowsでの書込み前拒否、共用SHA検証の異常系。Windowsでのmetadata更新は未実施。
+ローカル検証は構文と非Windowsでの書込み前拒否、共用SHA検証の異常系。Windowsでのmetadata更新も完了。2026-09-21にoperatorから以下の成功出力を受領した。
+
+```text
+RELEASED v0.1.0 | Gate C APPROVED | SHA256 25DEFCA4CC6DA01F350CC82E1302FF0CE1783BBCEE2A88B77EE2734E0C637EFD
+Installer unchanged. Local release metadata finalized.
+```
+
+承認記録commit `7119fff`とannotated tag `v0.1.0`はoriginへpush済み。tag対象は製品source `e598cc4d08a37ec6815a80a2f864f562c59ed8e6`。v0.1.0のリリース作業は完了し、追加のWindows操作はない。上のコマンドは実施済み履歴として保持する。
 
 ## RC3 Gate C判定資料（承認前の記録）
 

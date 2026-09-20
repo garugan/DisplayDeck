@@ -15,7 +15,7 @@ Display設定変更、Apply / Restore、WAL、crash recovery、watchdog、mutati
 - [x] 最終Smoke Test（2026-09-21 operator報告、10項目PASS）
 - [x] 証跡更新（RC3 / releaseコピーのSHA一致、Smoke全PASSを記録）
 - [x] Gate C判定（2026-09-21 human ownerがRC3の固定SHAを承認）
-- [x] Release（Gate C承認、製品sourceにv0.1.0 tag。Windows保存済みmetadata同期は現行手順参照）
+- [x] Release（Gate C承認、製品sourceにv0.1.0 tag。Windows保存済みmetadata同期も完了）
 
 ## Gate C — v0.1.0 Release
 
