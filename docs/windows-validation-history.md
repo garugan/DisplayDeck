@@ -1,6 +1,24 @@
 # DisplayDeck Windows検証履歴・手順書
 
-## v0.1.0 RC2作成（現行手順）
+## RC2中断後の状態確認（現行手順）
+
+operator報告: `fe2daa6`取得後にRC2作成を開始し、`One RC build. Output: ...build.log`表示後、画面更新がなかったためCtrl+Cで中断。build出力は全てlogへ転送される実装だった。build完了・子process終了・artifact生成は未確認。RC2は再実行・削除しない。
+
+本手順をcommit・push後、PowerShellで1行ずつ実行する。元のterminalがpromptへ戻らなければ別PowerShellを使う。cd / pullに失敗したら次へ進まない。
+
+```powershell
+cd D:\project\displaydeck
+git pull --ff-only
+node scripts/rc-status.mjs
+```
+
+read-onlyスクリプトは関連し得るbuild processの名前/PID/親PID/作成時刻、RCファイルの有無・size・更新時刻、既存manifest/hash記録、build.log末尾60行を表示する。processには無関係のbuildや確認スクリプト自身のnodeも含まれるため、列挙だけではRCの生存・終了を断定しない。実行中かもしれないInstallerのhash計算・固定は行わない。
+
+停止条件: 読み取りエラー・process照会失敗はそのまま共有し、buildや削除へ進まない。続行条件: 出力を共有後、ログとprocess情報から中断位置を判断する。生成物があっても終了とbuild成功が確認できるまではRCとして採用しない。子processのkill、再build、Installer実行はこの手順には含まない。
+
+ローカル検証: Node構文検査と非Windowsでの安全な停止チェック。Windows結果は未取得。
+
+## v0.1.0 RC2作成（中断・再実行禁止）
 
 環境確認結果: Windows HEAD `d7d98fcc48a908733d86c1bdf11be9808ab78381`、working tree clean、製品source `e598cc4d08a37ec6815a80a2f864f562c59ed8e6`あり、win32 x64、Node v22.18.0、Rust 1.97.1、Cargo 1.97.1、既存Tauri CLIあり。
 

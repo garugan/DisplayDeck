@@ -11,3 +11,9 @@ test("unsupported host rejects RC build before creating artifacts", { skip: proc
   assert.match(result.stderr, /Run only on Windows; no files changed/);
   assert.equal(existsSync(candidate), existed);
 });
+
+test("status check rejects unsupported host without starting PowerShell", { skip: process.platform === "win32" }, () => {
+  const result = spawnSync(process.execPath, [new URL("rc-status.mjs", import.meta.url).pathname], { encoding: "utf8" });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /Run only on Windows; no files changed/);
+});
