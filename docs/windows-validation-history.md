@@ -1,6 +1,28 @@
 # DisplayDeck Windows検証履歴・手順書
 
-## RC2中断後の状態確認（現行手順）
+## v0.1.0 RC3作成（現行手順）
+
+RC2状態確認結果: attempt開始 `2026-09-20T21:17:14.463Z`、build.logは9720 bytes、最終更新 `2026-09-20T21:18:22.849Z`。末尾は`Compiling tao v0.35.3`。Installer、SHA256SUMS、candidate-manifestは全て未生成。snapshotではcargo / rustc / link / makensis / tauri processは見えず、node 3件のうち2件はattempt開始前、1件は状態確認時刻のもの。RC2はCtrl+C中断、build成功未確認として保持する。既存processを一括killしない。
+
+RC3はRC2と同じ固定製品source `e598cc4d08a37ec6815a80a2f864f562c59ed8e6`を別worktreeへ展開し、別targetから1回生成する。RC2のファイルを削除・上書き・再利用しない。既存依存のみ使用し、Cargo offlineを維持する。
+
+修正した`scripts/rc-build.mjs`はstdout/stderrを画面とbuild.logの両方へ出し、15秒ごとに経過秒を表示する。経過表示はprocess待機中という意味で、compilerの進捗保証ではない。成功exitとartifact生成を確認してからSHA256を取得・コピー照合し、candidate-manifestを作る。失敗時は成功として固定しない。
+
+本手順をcommit・push後、Windows PowerShellで1行ずつ実行する。
+
+```powershell
+cd D:\project\displaydeck
+git pull --ff-only
+node scripts/rc-build.mjs
+```
+
+出力先は`D:\project\displaydeck\artifacts\v0.1.0-rc3`、Installer名は`DisplayDeck_0.1.0-rc3_x64-setup.exe`。同ディレクトリへattempt.json、build.log、SHA256SUMS.txt、candidate-manifest.jsonを保存する。
+
+停止条件: cd / pullの失敗なら次行へ進まない。buildエラー・ディレクトリ既存・依存不足は再実行せずログと出力を共有する。進捗が疑わしい場合も再buildや削除をせず表示内容を共有する。続行条件: `RC frozen`とpath / size / SHA256が表示されたらその出力を共有し、固定RCに対するSmoke Test手順へ進む。Installerはまだ実行しない。
+
+ローカル検証: 非Windowsの拒否、stdout/stderrのログ保存、子process失敗の伝播、既存ログ上書き拒否を自動確認。WindowsでのRC3 buildは未実施。
+
+## RC2中断後の状態確認（結果取得済み）
 
 operator報告: `fe2daa6`取得後にRC2作成を開始し、`One RC build. Output: ...build.log`表示後、画面更新がなかったためCtrl+Cで中断。build出力は全てlogへ転送される実装だった。build完了・子process終了・artifact生成は未確認。RC2は再実行・削除しない。
 

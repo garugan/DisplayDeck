@@ -17,17 +17,19 @@ Display設定変更、Apply / Restore、WAL、crash recovery、watchdog、mutati
 
 ## 次に実行すること（Windows）
 
-RC2ビルドはCtrl+Cで中断されました。**再build・RCフォルダ削除はせず**、まず状態を確認します。PowerShellで1行ずつ実行し、途中でエラーが出たら次へ進まないでください。元の画面にpromptが戻らなければ別のPowerShellを使ってください。
+RC2はコンパイル中に中断され、Installer未生成でした。RC2を保持し、同じ固定ソースから**別フォルダにRC3を1回作成**します。PowerShellで1行ずつ実行し、途中でエラーが出たら次へ進まないでください。
 
 ```powershell
 cd D:\project\displaydeck
 git pull --ff-only
-node scripts/rc-status.mjs
+node scripts/rc-build.mjs
 ```
 
-[状態確認スクリプト](scripts/rc-status.mjs)はprocess一覧・生成物の有無・ログ末尾を読み取るだけです。出力を全てチャットへ共有してください。build・process停止・Installer実行は行いません。
+今回はビルド出力が画面にも表示され、15秒ごとに待機時間が出ます。初回コンパイルは時間がかかります。`RC frozen`またはエラーが表示されるまで待ち、最後の出力をチャットへ共有してください。
 
-手順と停止・続行条件: [RC2中断後の状態確認](docs/windows-validation-history.md#rc2中断後の状態確認現行手順)。
+保存先は`artifacts/v0.1.0-rc3`です。**再実行・RCフォルダ削除・Installer起動はまだしないでください。** 次は固定RCのSmoke Testです。
+
+手順と停止・続行条件: [v0.1.0 RC3作成](docs/windows-validation-history.md#v010-rc3作成現行手順)。
 
 ## 過去のrelease 01検証・承認記録
 
