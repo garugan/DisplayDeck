@@ -1,5 +1,39 @@
 # DisplayDeck Windows検証履歴・手順書
 
+## v0.1.0 RC2作成（現行手順）
+
+環境確認結果: Windows HEAD `d7d98fcc48a908733d86c1bdf11be9808ab78381`、working tree clean、製品source `e598cc4d08a37ec6815a80a2f864f562c59ed8e6`あり、win32 x64、Node v22.18.0、Rust 1.97.1、Cargo 1.97.1、既存Tauri CLIあり。
+
+owner指定の「既存Installer不在・不一致の場合だけ1回のRC再生成」に従う。対象は過去のread-only製品sourceであり、現在のmutation sourceはbuildしない。このread-only RC作成はv0.2 mutation実装とは別作業。依存package / toolchainのinstall・updateは行わない。
+
+次をcommit・pushした後、PowerShellで1行ずつ実行する。cd / pullに失敗したら次行へ進まない。
+
+```powershell
+cd D:\project\displaydeck
+git pull --ff-only
+node scripts/rc-build.mjs
+```
+
+スクリプトは`artifacts/v0.1.0-rc2/source`にdetached worktreeを作り、既存node_modulesをjunctionで参照し、既存buildスクリプトを1回実行する。Cargoはofflineで既存cacheだけを使う。別のtargetディレクトリで生成するため、以前のInstallerは上書きしない。RCディレクトリが既にあれば停止し、自動retry・削除・再buildしない。
+
+出力先:
+
+```text
+D:\project\displaydeck\artifacts\v0.1.0-rc2\
+  DisplayDeck_0.1.0-rc2_x64-setup.exe
+  SHA256SUMS.txt
+  candidate-manifest.json
+  attempt.json
+  build.log
+  source/
+```
+
+build完了直後に生成InstallerのSHA256を取得し、固有RC名へのコピー後も一致を確認する。candidate-manifestはSmoke Test未実施 / Gate C未判定と明記する。最終release-manifestとは区別する。製品source変更が検出された場合も停止して候補を使用しない。
+
+続行条件: コマンド成功・manifest出力・`RC frozen`表示。path / size / SHA256を含む出力を共有して、固定RCのSmoke Test手順へ進む。停止条件: 任意のエラー、依存cache不足、tool不足、RCディレクトリ存在。自動でpackageを追加せず、出力とbuild.logを保持して共有する。失敗したRC2は上書きしない。installer実行・アプリ起動・Smoke Testはこのコマンドには含まない。
+
+ローカル確認: Node構文検査、非Windowsでbuild前に停止するチェックを実施。Windows build自体は未実施。
+
 ## RC再生成前の環境確認（現行手順）
 
 operatorによるnsisフォルダ再確認でも、報告されたファイルはLength `2158751` / SHA256 `8DE2D72C5DF77A6ABA7FBDFE7555BEE1CB879A1996567E34A9FE7947D262B7C3`のみ。qualified artifactは未発見。貼付pathのescapeの有無は未確定だが、報告されたSHA不一致は確定している。元ファイルは保持する。

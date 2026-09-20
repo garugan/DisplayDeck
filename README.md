@@ -17,17 +17,19 @@ Display設定変更、Apply / Restore、WAL、crash recovery、watchdog、mutati
 
 ## 次に実行すること（Windows）
 
-PowerShellで次を**1行ずつ**実行してください。途中でエラーが出たら、次の行には進まず停止してください。
+環境確認は完了しました。次は過去のread-onlyソースを別フォルダへ固定して、RC2を1回生成します。PowerShellで**1行ずつ**実行し、途中でエラーが出たら次へ進まないでください。
 
 ```powershell
 cd D:\project\displaydeck
 git pull --ff-only
-node scripts/rc-check.mjs
+node scripts/rc-build.mjs
 ```
 
-[確認スクリプト](scripts/rc-check.mjs)はソースとビルド環境を読み取るだけです。build・インストール・Display設定変更は行いません。出力を全てチャットへ共有してください。未コミット変更や必要ツールの不足が表示されても、その場で修正・buildせず停止します。
+[RC作成スクリプト](scripts/rc-build.mjs)は既存Installerを上書きせず、`artifacts/v0.1.0-rc2`へInstaller・SHA256・候補manifest・build.logを保存します。ビルド中の出力は同フォルダの`build.log`に記録します。終了時の出力を全てチャットへ共有してください。
 
-手順と停止・続行条件の記録: [RC再生成前の環境確認](docs/windows-validation-history.md#rc再生成前の環境確認現行手順)。
+**成功・失敗どちらでも再実行やRCフォルダの削除をしないでください。** 成功後もまだInstallerを起動しません。次は固定RCのSmoke Testです。
+
+手順と停止・続行条件: [v0.1.0 RC2作成](docs/windows-validation-history.md#v010-rc2作成現行手順)。
 
 ## 過去のrelease 01検証・承認記録
 
